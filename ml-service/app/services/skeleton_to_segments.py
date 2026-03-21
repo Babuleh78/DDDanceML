@@ -4,6 +4,9 @@ import numpy as np
 from pathlib import Path
 from scipy.signal import find_peaks, savgol_filter
 
+from typing import Optional
+import numpy as np
+
 
 KEY_JOINTS = [
     0,          # нос — голова
@@ -174,6 +177,7 @@ def build_segments(
     frames: list,
     boundary_frames: list[int],
     fps: float,
+    energy: Optional[np.ndarray] = None,
     min_segment_sec: float = 1.0,
 ) -> list[dict]:
     N = len(frames)
@@ -191,8 +195,8 @@ def build_segments(
             filtered.append(b)
 
     boundaries = filtered
-
     segments = []
+
     for i in range(len(boundaries) - 1):
         start_f = boundaries[i]
         end_f   = boundaries[i + 1]
@@ -200,6 +204,13 @@ def build_segments(
         start_ms    = frames[start_f].get("timestamp_ms", start_f * (1000 / fps))
         end_ms      = frames[end_f].get("timestamp_ms",   end_f   * (1000 / fps))
         duration_ms = end_ms - start_ms
+
+        if energy is not None and len(energy) > end_f:
+            peak_f = int(np.argmax(energy[start_f:end_f + 1])) + start_f
+        else:
+            peak_f = (start_f + end_f) // 2
+
+        peak_ms = frames[peak_f].get("timestamp_ms", peak_f * (1000 / fps))
 
         segments.append({
             "index":        len(segments),
@@ -211,6 +222,11 @@ def build_segments(
             "duration_ms":  round(duration_ms, 2),
             "duration_sec": round(duration_ms / 1000, 3),
             "num_frames":   end_f - start_f,
+            "keyframes": {
+                "start": {"frame_idx": start_f, "timestamp_ms": round(start_ms, 2)},
+                "peak":  {"frame_idx": peak_f,  "timestamp_ms": round(peak_ms, 2)},
+                "end":   {"frame_idx": end_f,   "timestamp_ms": round(end_ms, 2)},
+            },
         })
 
-    return segments 
+    return segments

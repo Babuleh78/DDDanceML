@@ -151,3 +151,64 @@ def process_video(video_key: str) -> dict:
         "num_segments": len(segments),
         "duration_sec": result_data["meta"]["duration_sec"],
     }
+
+def process_video(video_key: str) -> dict:
+    result_key = _make_result_key(video_key)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmpdir = Path(tmpdir)
+        video_path = str(tmpdir / Path(video_key).name)
+
+        s3_client.download_file(video_key, video_path)
+
+        cap = cv2.VideoCapture(video_path)
+        fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+        cap.release()
+
+        with SkeletonExtractor(
+            model_complexity=settings.skeleton_model_complexity
+        ) as extractor:
+            frames = extractor.process_video(
+                video_path,
+                frame_skip=settings.skeleton_frame_skip,
+                smoothing_alpha=settings.skeleton_smoothing_alpha,
+            )
+
+        raw_frames = [
+            {
+                "frame_idx": f.frame_idx,
+                "timestamp_ms": f.timestamp_ms,
+                "joints": [
+                    {"x": j.x, "y": j.y, "z": j.z, "vis": j.visibility}
+                    for j in f.joints
+                ],
+            }
+            for f in frames
+        ]
+
+        energy, _ = compute_energy(
+            raw_frames,
+            smooth_window=settings.segmenter_smooth_window,
+        )
+        boundaries = detect_boundaries(
+            energy,
+            fps=fps,
+            min_segment_sec=settings.segmenter_min_seg_sec,
+            sensitivity=settings.segmenter_sensitivity,
+        )
+        segments = build_segments(raw_frames, boundaries, fps, energy=energy, min_segment_sec=settings.segmenter_min_seg_sec)
+
+        result_data = _build_result(frames, segments, fps)
+
+        result_path = tmpdir / "result.json"
+        with open(result_path, "w", encoding="utf-8") as f:
+            json.dump(result_data, f, ensure_ascii=False)
+
+        s3_client.upload_file(str(result_path), result_key)
+
+    return {
+        "result_key": result_key,
+        "num_frames": len(frames),
+        "num_segments": len(segments),
+        "duration_sec": result_data["meta"]["duration_sec"],
+    }

@@ -8,4 +8,10 @@ services:
     volumes:
       - ./ml-service/app:/app/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
-    
+    networks:
+      - backend-network
+      
+networks:
+  backend-network:  
+    external: true
+    name: 2026_1_davaidavaideploy_backend_ddd-network  
