@@ -1,5 +1,6 @@
 import cv2
 import json
+import numpy as np
 from pathlib import Path
 from dataclasses import dataclass
 from typing import List, Optional
@@ -11,22 +12,22 @@ except ImportError:
 
 
 MP_LANDMARK_NAMES = [
-    "nose",                                                          # 0
-    "left_eye_inner", "left_eye", "left_eye_outer",                  # 1-3
-    "right_eye_inner", "right_eye", "right_eye_outer",               # 4-6
-    "left_ear", "right_ear",                                         # 7-8
-    "mouth_left", "mouth_right",                                     # 9-10
-    "left_shoulder", "right_shoulder",                               # 11-12
-    "left_elbow", "right_elbow",                                     # 13-14
-    "left_wrist", "right_wrist",                                     # 15-16
-    "left_pinky", "right_pinky",                                     # 17-18
-    "left_index", "right_index",                                     # 19-20
-    "left_thumb", "right_thumb",                                     # 21-22
-    "left_hip", "right_hip",                                         # 23-24
-    "left_knee", "right_knee",                                       # 25-26
-    "left_ankle", "right_ankle",                                     # 27-28
-    "left_heel", "right_heel",                                       # 29-30
-    "left_foot_index", "right_foot_index",                           # 31-32
+    "nose",
+    "left_eye_inner", "left_eye", "left_eye_outer",
+    "right_eye_inner", "right_eye", "right_eye_outer",
+    "left_ear", "right_ear",
+    "mouth_left", "mouth_right",
+    "left_shoulder", "right_shoulder",
+    "left_elbow", "right_elbow",
+    "left_wrist", "right_wrist",
+    "left_pinky", "right_pinky",
+    "left_index", "right_index",
+    "left_thumb", "right_thumb",
+    "left_hip", "right_hip",
+    "left_knee", "right_knee",
+    "left_ankle", "right_ankle",
+    "left_heel", "right_heel",
+    "left_foot_index", "right_foot_index",
 ]
 
 SKELETON_CONNECTIONS = [
@@ -53,29 +54,22 @@ class Joint:
 class Frame:
     frame_idx: int
     timestamp_ms: float
-    joints: List[Joint] 
+    joints: List[Joint]
+
 
 class ExponentialSmoother:
     def __init__(self, alpha: float = 0.3):
         self.alpha = alpha
-        self._prev: Optional[List[Joint]] = None
+        self._prev: Optional[np.ndarray] = None
 
-    def smooth(self, joints: List[Joint]) -> List[Joint]:
+    def smooth(self, joints_arr: np.ndarray) -> np.ndarray:
         if self._prev is None:
-            self._prev = joints
-            return joints
+            self._prev = joints_arr.copy()
+            return joints_arr
+        result = self.alpha * joints_arr + (1 - self.alpha) * self._prev
+        self._prev = result
+        return result
 
-        smoothed = [
-            Joint(
-                x          = self.alpha * c.x          + (1 - self.alpha) * p.x,
-                y          = self.alpha * c.y          + (1 - self.alpha) * p.y,
-                z          = self.alpha * c.z          + (1 - self.alpha) * p.z,
-                visibility = self.alpha * c.visibility + (1 - self.alpha) * p.visibility,
-            )
-            for c, p in zip(joints, self._prev)
-        ]
-        self._prev = smoothed
-        return smoothed
 
 class SkeletonExtractor:
 
@@ -95,7 +89,6 @@ class SkeletonExtractor:
                 min_detection_confidence=min_detection_confidence,
                 min_tracking_confidence=min_tracking_confidence,
             )
-            print("[extractor] MediaPipe solutions API")
         except AttributeError:
             self._use_new_api = True
             self._init_tasks_api(min_detection_confidence, min_tracking_confidence)
@@ -108,13 +101,10 @@ class SkeletonExtractor:
         model_path = "pose_landmarker_heavy.task"
         if not os.path.exists(model_path):
             import urllib.request
-            print("[extractor] Скачиваем модель...")
             url = ("https://storage.googleapis.com/mediapipe-models/"
                    "pose_landmarker/pose_landmarker_heavy/float16/latest/"
                    "pose_landmarker_heavy.task")
             urllib.request.urlretrieve(url, model_path)
-        else:
-            print("[extractor] Используем готовую модель")
 
         opts = vision.PoseLandmarkerOptions(
             base_options=mp_tasks.BaseOptions(model_asset_path=model_path),
@@ -124,7 +114,6 @@ class SkeletonExtractor:
             min_tracking_confidence=track_conf,
         )
         self.landmarker = vision.PoseLandmarker.create_from_options(opts)
-        print("[extractor] MediaPipe tasks API")
 
     def _close(self) -> None:
         if self._use_new_api:
@@ -153,22 +142,22 @@ class SkeletonExtractor:
 
         fps   = cap.get(cv2.CAP_PROP_FPS) or 30.0
         total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-        print(f"[extractor] Видео: {total} кадров, {fps:.1f} fps, "
-              f"frame_skip={frame_skip}, alpha={smoothing_alpha}")
 
-        smoother   = ExponentialSmoother(alpha=smoothing_alpha)
+        smoother = ExponentialSmoother(alpha=smoothing_alpha)
         frames: List[Frame] = []
-        prev_joints: Optional[List[Joint]] = None
-        raw_idx = 0 
+        prev_arr: Optional[np.ndarray] = None
+        raw_idx = 0
 
         while True:
+            if raw_idx % frame_skip != 0:
+                if not cap.grab():
+                    break
+                raw_idx += 1
+                continue
+
             ret, bgr = cap.read()
             if not ret:
                 break
-
-            if raw_idx % frame_skip != 0:
-                raw_idx += 1
-                continue
 
             if max_frames and len(frames) >= max_frames:
                 break
@@ -196,38 +185,32 @@ class SkeletonExtractor:
                     landmarks_3d = result.pose_world_landmarks.landmark
 
             if landmarks_3d:
-                raw_joints = [
-                    Joint(
-                        x=landmarks_3d[i].x,
-                        y=landmarks_3d[i].y,
-                        z=landmarks_3d[i].z,
-                        visibility=getattr(landmarks_3d[i], "visibility", 1.0),
-                    )
-                    for i in range(33)
-                ]
-                prev_joints = raw_joints
+                raw_arr = np.array(
+                    [[lm.x, lm.y, lm.z, getattr(lm, "visibility", 1.0)]
+                     for lm in landmarks_3d],
+                    dtype=np.float32,
+                )
+                prev_arr = raw_arr
             else:
-                raw_joints = prev_joints if prev_joints else [
-                    Joint(0.0, 0.0, 0.0, 0.0) for _ in range(33)
-                ]
+                raw_arr = prev_arr if prev_arr is not None else np.zeros((33, 4), dtype=np.float32)
 
-            # Сглаживание применяется после fallback сглаживаем всегда
-            smoothed_joints = smoother.smooth(raw_joints)
+            smoothed_arr = smoother.smooth(raw_arr)
 
             frames.append(Frame(
                 frame_idx=raw_idx,
                 timestamp_ms=timestamp_ms,
-                joints=smoothed_joints,
+                joints=[
+                    Joint(x=float(smoothed_arr[i, 0]),
+                          y=float(smoothed_arr[i, 1]),
+                          z=float(smoothed_arr[i, 2]),
+                          visibility=float(smoothed_arr[i, 3]))
+                    for i in range(33)
+                ],
             ))
             raw_idx += 1
 
-            if len(frames) % 100 == 0:
-                pct = raw_idx / total * 100
-                print(f"  [{pct:.0f}%] обработано {len(frames)} кадров")
-
         cap.release()
         self._close()
-        print(f"[extractor] Готово: {len(frames)} кадров")
         return frames
 
 
@@ -243,7 +226,10 @@ def save_skeleton_json(frames: List[Frame], output_path: str,
                 "frame_idx": f.frame_idx,
                 "timestamp_ms": f.timestamp_ms,
                 "joints": [
-                    {"x": j.x, "y": j.y, "z": j.z, "vis": j.visibility}
+                    {"x": round(j.x, 5),
+                     "y": round(j.y, 5),
+                     "z": round(j.z, 5),
+                     "vis": round(j.visibility, 4)}
                     for j in f.joints
                 ],
             }
@@ -255,4 +241,4 @@ def save_skeleton_json(frames: List[Frame], output_path: str,
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     with open(output_path, "w", encoding="utf-8") as fp:
-        json.dump(data, fp, indent=2, ensure_ascii=False)
+        json.dump(data, fp, ensure_ascii=False)
