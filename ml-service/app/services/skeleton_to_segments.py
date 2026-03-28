@@ -51,7 +51,6 @@ def angle_at_joint(frame: dict, a_idx: int, b_idx: int, c_idx: int) -> float:
         return 0.0
 
     cos_angle = np.dot(BA, BC) / (norm_BA * norm_BC)
-    # Клиппинг нужен из-за числовых погрешностей float32
     cos_angle = np.clip(cos_angle, -1.0, 1.0)
     return float(np.arccos(cos_angle))
 
@@ -93,7 +92,6 @@ def compute_pose_diff(frames: list, window: int = 3) -> np.ndarray:
     N = len(frames)
     pose_diff = np.zeros(N, dtype=np.float32)
 
-    # Плоский вектор позы: все ключевые суставы [x1,y1,z1, x2,y2,z2, ...]
     poses = np.array([
         np.concatenate([joint_pos(f, i) for i in KEY_JOINTS])
         for f in frames
@@ -114,10 +112,6 @@ def compute_pose_diff(frames: list, window: int = 3) -> np.ndarray:
 
 
 def normalize(signal: np.ndarray) -> np.ndarray:
-    """
-    Нормализует сигнал в диапазон [0, 1].
-    Защита от деления на ноль через eps.
-    """
     s_min = signal.min()
     s_max = signal.max()
     if s_max - s_min < 1e-8:

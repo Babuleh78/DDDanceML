@@ -1,6 +1,13 @@
+# app/core/s3.py
 import boto3
+from botocore.config import Config
 from botocore.exceptions import ClientError
 from app.core.config import settings
+from pathlib import Path
+import logging
+from boto3.s3.transfer import TransferConfig
+
+logger = logging.getLogger(__name__)
 
 
 def get_s3_client():
@@ -10,22 +17,52 @@ def get_s3_client():
         aws_access_key_id=settings.s3_access_key,
         aws_secret_access_key=settings.s3_secret_key,
         region_name=settings.s3_region,
+        config=Config(
+            signature_version='s3v4',
+            connect_timeout=30,
+            read_timeout=300,
+            retries={'max_attempts': 3},
+            s3={'use_accelerate_endpoint': False},
+        ),
     )
 
 
 def download_file(s3_key: str, local_path: str) -> None:
-    """Скачивает файл из S3 по ключу во временный локальный путь."""
     client = get_s3_client()
     try:
         client.download_file(settings.s3_bucket, s3_key, local_path)
     except ClientError as e:
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        if error_code == 'NoSuchKey':
+            raise FileNotFoundError(f"S3 key not found: {s3_key}")
         raise RuntimeError(f"S3 download failed for key '{s3_key}': {e}")
 
 
 def upload_file(local_path: str, s3_key: str) -> None:
-    """Загружает локальный файл в S3."""
     client = get_s3_client()
+    local_path_obj = Path(local_path)
+    
+    if not local_path_obj.exists():
+        raise FileNotFoundError(f"File not found: {local_path}")
+    
+   
+    config = TransferConfig(
+        multipart_threshold=100 * 1024 * 1024, 
+        use_threads=False,
+    )
+    
     try:
-        client.upload_file(local_path, settings.s3_bucket, s3_key)
+        client.upload_file(
+            str(local_path),
+            settings.s3_bucket,
+            s3_key,
+            Config=config,
+            ExtraArgs={
+                'ContentType': 'model/gltf-binary' if s3_key.endswith('.glb') else 'application/json',
+            }
+        )
+        
     except ClientError as e:
-        raise RuntimeError(f"S3 upload failed for key '{s3_key}': {e}")
+        error_code = e.response.get('Error', {}).get('Code', 'Unknown')
+        error_msg = e.response.get('Error', {}).get('Message', str(e))
+        raise RuntimeError(f"S3 upload failed for key '{s3_key}': {error_code} - {error_msg}")

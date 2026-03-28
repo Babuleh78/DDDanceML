@@ -1,7 +1,9 @@
-_pycache__/
+__pycache__/
 *.pyc
 .pytest_cache/
 DDDenv/
+DDDenv39/
+
 
 *.mp4
 *.avi

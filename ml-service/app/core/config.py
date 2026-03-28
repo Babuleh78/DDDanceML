@@ -12,10 +12,15 @@ class Settings(BaseSettings):
     s3_bucket: str
     s3_region: str = "us-east-1"
 
-    # Skeleton extraction
-    skeleton_model_complexity: int = 2
-    skeleton_frame_skip: int = 2        # обрабатывать каждый N-й кадр (2 = 15fps из 30)
-    skeleton_smoothing_alpha: float = 0.3  # 
+    # Mixamo pipeline
+    mixamo_model_path: str = "/app/models/mixamo_model.json"
+    mixamo_min_visibility: float = 0.6
+    mixamo_hips_move: bool = False
+    mixamo_max_frames: int = 5000
+
+    # Blender
+    blender_executable: str = "blender" 
+    blender_character_blend: str = "character.blend" 
 
     # Segmentation
     segmenter_min_seg_sec: float = 0.8

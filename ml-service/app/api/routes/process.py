@@ -9,22 +9,12 @@ from app.services.processing import process_video
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/process", tags=["processing"])
-
 _processing_semaphore = asyncio.Semaphore(1)
 
 
 @router.post("/", response_model=ProcessResponse)
 async def process(req: ProcessRequest):
     logger.info(f"Processing request: bucket={req.bucket}, key={req.video_key}")
-    
-    if not _processing_semaphore.locked():
-        logger.info("Semaphore available, starting processing")
-    else:
-        logger.warning("Server busy, rejecting request")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Server busy, try again later"
-        )
     
     async with _processing_semaphore:
         try:
@@ -35,9 +25,9 @@ async def process(req: ProcessRequest):
                 req.video_key
             )
             
-            # Возвращаем ответ
             return ProcessResponse(
-                result_key=result["result_key"],
+                result_key=result["animation_key"],  
+                segments_key=result["segments_key"], 
                 num_frames=result["num_frames"],
                 num_segments=result["num_segments"],
                 duration_sec=result["duration_sec"]
