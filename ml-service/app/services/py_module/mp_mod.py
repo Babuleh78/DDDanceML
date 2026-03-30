@@ -348,7 +348,7 @@ def mediapipe_to_mixamo2(mp_manager,
             if glm_list[0] != None:
                 time =  math.floor(frame_num*time_factor)
                 pose_array = glm_list_to_numpy(glm_list)
-                t = frame_num / mp_manager.fps
+                t = frame_num / fps
                 filtered_array = one_euro_filter(
                     np.ones_like(pose_array) * t,
                     pose_array
