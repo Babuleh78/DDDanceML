@@ -11,7 +11,7 @@ def exponential_smoothing(a, x, x_prev):
     return a * x + (1 - a) * x_prev
 
 
-class Shashurailter:
+class ShashuraFilter:
     def __init__(self, min_cutoff=2.0, beta=0.4, d_cutoff=1.0):
         self.min_cutoff = float(min_cutoff)
         self.beta = float(beta)
