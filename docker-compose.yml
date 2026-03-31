@@ -1,17 +1,67 @@
+# docker-compose.yml
+version: '3.8'
+
 services:
+  # === Ваш ML-сервис ===
   ml-service:
     build: .
     ports:
       - "8000:8000"
     env_file:
       - .env
+    environment:
+      # === Переопределяем настройки для Docker-сети ===
+      - OLLAMA_HOST=http://ollama:11434  # ← имя сервиса ollama, не localhost!
+      - LABELING_BACKEND=ollama
+      - LABELING_MODEL_OLLAMA=qwen2.5:7b
+      - OLLAMA_KEEP_ALIVE=24h 
+      - OLLAMA_NUM_CTX=512 
+      - OLLAMA_NUM_THREAD=4  
     volumes:
-      - ./ml-service/app:/app/app
+      - ./ml-service/app:/app/app:ro      # код только для чтения
+      - ./ml-service/.env:/app/.env:ro    # конфиг
+      - ./ml-service/results:/app/results # результаты
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - ollama  # ждём, пока Ollama поднимется
     networks:
       - backend-network
-      
+    deploy:
+      resources:
+        limits:
+          memory: 4G  # лимит для самого ML-сервиса
+
+  # === НОВЫЙ: Ollama сервис ===
+  ollama:
+    image: ollama/ollama:latest
+    container_name: ollama
+    ports:
+      - "11434:11434"  # API для локального доступа (опционально)
+    volumes:
+      - ollama_models:/root/.ollama  # персистентность моделей
+    environment:
+      # === Оптимизации для Docker ===
+      - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_KEEP_ALIVE=24h  # не выгружать модель из памяти
+      - OLLAMA_NUM_CTX=512     # уменьшаем контекст для экономии памяти
+   
+    runtime: nvidia  # альтернативный способ для Docker Compose v2
+    networks:
+      - backend-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 300s  # даём время на первую загрузку модели
+
+# === Хранение моделей ===
+volumes:
+  ollama_models:
+    name: dddance_ollama_models  # именованный том для удобства
+
 networks:
   backend-network:  
     external: true
-    name: 2026_1_davaidavaideploy_backend_ddd-network  
+    name: 2026_1_davaidavaideploy_backend_ddd-network

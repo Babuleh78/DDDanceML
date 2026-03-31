@@ -6,13 +6,13 @@ import matplotlib
 import os
 from .mixamo import Mixamo
 from .model_node import ModelNode, json_to_glm_vec, json_to_glm_quat, calc_transform
-from .one_euro_filter import OneEuroFilter
+from .shashura import ShashuraFilter
 import copy
 import numpy as np
 
-def smooth_pose(one_euro_filter, pose, time):
+def smooth_pose(shashura_filter, pose, time):
     t = np.ones_like(pose) * time
-    return one_euro_filter(t, pose)
+    return shashura_filter(t, pose)
 
 def get_3d_len(left):
     return math.sqrt((left["x"])**2 + (left["y"])**2 + (left["z"])**2)
@@ -330,7 +330,7 @@ def mediapipe_to_mixamo2(mp_manager,
         is_show_result = mp_manager.is_show_result
         min_visibility = mp_manager.min_visibility
         is_hips_move = mp_manager.is_hips_move
-        one_euro_filter = OneEuroFilter(min_cutoff=1.0, beta=0.1)
+        shashura_filter = ShashuraFilter(min_cutoff=1.0, beta=0.1)
         while cap.isOpened():
 
             success, cap_image = cap.read()
@@ -349,7 +349,7 @@ def mediapipe_to_mixamo2(mp_manager,
                 time =  math.floor(frame_num*time_factor)
                 pose_array = glm_list_to_numpy(glm_list)
                 t = frame_num / mp_manager.fps
-                filtered_array = one_euro_filter(
+                filtered_array = shashura_filter(
                     np.ones_like(pose_array) * t,
                     pose_array
                 )

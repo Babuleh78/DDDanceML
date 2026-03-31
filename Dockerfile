@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxcb-xinerama0 libxcb-xkb1 libgl1 libglx0 libegl1 libgles2 \
     libglvnd0 libglib2.0-0 libsm6 libxau6 libxdmcp6 libxmu6 libxpm4 \
     libxxf86vm1 fontconfig libfreetype6 libpng16-16 libjpeg62-turbo \
-    wget xz-utils ca-certificates \
+    wget xz-utils ca-certificates git build-essential cmake \
     && rm -rf /var/lib/apt/lists/* && ldconfig
 
 ARG BLENDER_VERSION=5.1.0
@@ -28,8 +28,10 @@ ENV PATH="/opt/blender:${PATH}"
 WORKDIR /app
 
 COPY requirements.txt .
+
 RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir mediapipe==0.10.14
 
 COPY ml-service/app/ ./app/
 COPY ml-service/blender_data/ ./blender_data/

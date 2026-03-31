@@ -1,0 +1,267 @@
+{
+  "version": "1.1",
+  "meta": {
+    "fps": 30.0,
+    "num_frames": 414,
+    "duration_sec": 13.8,
+    "processed_at": "2026-03-30T23:10:06.779731+00:00",
+    "labeling": {
+      "enabled": true,
+      "strategy": "ollama",
+      "cached_hits": 0,
+      "errors": 0,
+      "processed_count": 9
+    },
+    "cache_stats": {
+      "size": 9,
+      "max_size": 1000
+    }
+  },
+  "num_segments": 9,
+  "segments": [
+    {
+      "index": 0,
+      "label": "Быстрое сдвигание\".",
+      "start_frame": 0,
+      "end_frame": 100,
+      "start_ms": 0.0,
+      "end_ms": 3333.33,
+      "duration_ms": 3333.33,
+      "duration_sec": 3.333,
+      "num_frames": 100,
+      "keyframes": {
+        "start": {
+          "frame_idx": 0,
+          "timestamp_ms": 0.0
+        },
+        "peak": {
+          "frame_idx": 100,
+          "timestamp_ms": 3333.33
+        },
+        "end": {
+          "frame_idx": 100,
+          "timestamp_ms": 3333.33
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "01ea966e954c114b"
+    },
+    {
+      "index": 1,
+      "label": "Воздушный прыжок",
+      "start_frame": 100,
+      "end_frame": 141,
+      "start_ms": 3333.33,
+      "end_ms": 4700.0,
+      "duration_ms": 1366.67,
+      "duration_sec": 1.367,
+      "num_frames": 41,
+      "keyframes": {
+        "start": {
+          "frame_idx": 100,
+          "timestamp_ms": 3333.33
+        },
+        "peak": {
+          "frame_idx": 100,
+          "timestamp_ms": 3333.33
+        },
+        "end": {
+          "frame_idx": 141,
+          "timestamp_ms": 4700.0
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "ca95ea440003b940"
+    },
+    {
+      "index": 2,
+      "label": "Воздушный прыжок",
+      "start_frame": 141,
+      "end_frame": 178,
+      "start_ms": 4700.0,
+      "end_ms": 5933.33,
+      "duration_ms": 1233.33,
+      "duration_sec": 1.233,
+      "num_frames": 37,
+      "keyframes": {
+        "start": {
+          "frame_idx": 141,
+          "timestamp_ms": 4700.0
+        },
+        "peak": {
+          "frame_idx": 178,
+          "timestamp_ms": 5933.33
+        },
+        "end": {
+          "frame_idx": 178,
+          "timestamp_ms": 5933.33
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "9de99c056a7bd872"
+    },
+    {
+      "index": 3,
+      "label": "Воздушный прыжок",
+      "start_frame": 178,
+      "end_frame": 238,
+      "start_ms": 5933.33,
+      "end_ms": 8033.33,
+      "duration_ms": 2100.0,
+      "duration_sec": 2.1,
+      "num_frames": 60,
+      "keyframes": {
+        "start": {
+          "frame_idx": 178,
+          "timestamp_ms": 5933.33
+        },
+        "peak": {
+          "frame_idx": 238,
+          "timestamp_ms": 8033.33
+        },
+        "end": {
+          "frame_idx": 238,
+          "timestamp_ms": 8033.33
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "b9fd2f2e0b1fb3e3"
+    },
+    {
+      "index": 4,
+      "label": "Быстрое прыжок",
+      "start_frame": 238,
+      "end_frame": 271,
+      "start_ms": 8033.33,
+      "end_ms": 9133.33,
+      "duration_ms": 1100.0,
+      "duration_sec": 1.1,
+      "num_frames": 33,
+      "keyframes": {
+        "start": {
+          "frame_idx": 238,
+          "timestamp_ms": 8033.33
+        },
+        "peak": {
+          "frame_idx": 238,
+          "timestamp_ms": 8033.33
+        },
+        "end": {
+          "frame_idx": 271,
+          "timestamp_ms": 9133.33
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "d862e4aa71e46b64"
+    },
+    {
+      "index": 5,
+      "label": "Быстрый прыжок",
+      "start_frame": 271,
+      "end_frame": 298,
+      "start_ms": 9133.33,
+      "end_ms": 10033.33,
+      "duration_ms": 900.0,
+      "duration_sec": 0.9,
+      "num_frames": 27,
+      "keyframes": {
+        "start": {
+          "frame_idx": 271,
+          "timestamp_ms": 9133.33
+        },
+        "peak": {
+          "frame_idx": 298,
+          "timestamp_ms": 10033.33
+        },
+        "end": {
+          "frame_idx": 298,
+          "timestamp_ms": 10033.33
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "e1919a4c9ed3ce7f"
+    },
+    {
+      "index": 6,
+      "label": "Быстрый прыжок",
+      "start_frame": 298,
+      "end_frame": 352,
+      "start_ms": 10033.33,
+      "end_ms": 11833.33,
+      "duration_ms": 1800.0,
+      "duration_sec": 1.8,
+      "num_frames": 54,
+      "keyframes": {
+        "start": {
+          "frame_idx": 298,
+          "timestamp_ms": 10033.33
+        },
+        "peak": {
+          "frame_idx": 352,
+          "timestamp_ms": 11833.33
+        },
+        "end": {
+          "frame_idx": 352,
+          "timestamp_ms": 11833.33
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "7a62ea01d510b5b5"
+    },
+    {
+      "index": 7,
+      "label": "Быстрое взлётное",
+      "start_frame": 352,
+      "end_frame": 385,
+      "start_ms": 11833.33,
+      "end_ms": 12933.33,
+      "duration_ms": 1100.0,
+      "duration_sec": 1.1,
+      "num_frames": 33,
+      "keyframes": {
+        "start": {
+          "frame_idx": 352,
+          "timestamp_ms": 11833.33
+        },
+        "peak": {
+          "frame_idx": 352,
+          "timestamp_ms": 11833.33
+        },
+        "end": {
+          "frame_idx": 385,
+          "timestamp_ms": 12933.33
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "8ee0c44043f4488a"
+    },
+    {
+      "index": 8,
+      "label": "Быстрый шаг",
+      "start_frame": 385,
+      "end_frame": 413,
+      "start_ms": 12933.33,
+      "end_ms": 13866.67,
+      "duration_ms": 933.33,
+      "duration_sec": 0.933,
+      "num_frames": 28,
+      "keyframes": {
+        "start": {
+          "frame_idx": 385,
+          "timestamp_ms": 12933.33
+        },
+        "peak": {
+          "frame_idx": 413,
+          "timestamp_ms": 13866.67
+        },
+        "end": {
+          "frame_idx": 413,
+          "timestamp_ms": 13866.67
+        }
+      },
+      "label_source": "ollama",
+      "features_hash": "f959b4917ce7f0c0"
+    }
+  ],
+  "debug": null
+}
