@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     # Кэширование
     labeling_cache_ttl: int = Field(default=3600, env="LABELING_CACHE_TTL")
     labeling_cache_size: int = Field(default=1000, env="LABELING_CACHE_SIZE")
+    redis_url: str = "redis://redis:6379/0"
     
     # === Debug ===
     debug_mode: bool = Field(default=False, env="DEBUG_MODE")

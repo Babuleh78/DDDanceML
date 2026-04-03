@@ -1,8 +1,6 @@
-# docker-compose.yml
 version: '3.8'
 
 services:
-  # === Ваш ML-сервис ===
   ml-service:
     build: .
     ports:
@@ -10,58 +8,103 @@ services:
     env_file:
       - .env
     environment:
-      # === Переопределяем настройки для Docker-сети ===
-      - OLLAMA_HOST=http://ollama:11434  # ← имя сервиса ollama, не localhost!
+      - OLLAMA_HOST=http://ollama:11434
       - LABELING_BACKEND=ollama
       - LABELING_MODEL_OLLAMA=qwen2.5:7b
-      - OLLAMA_KEEP_ALIVE=24h 
-      - OLLAMA_NUM_CTX=512 
-      - OLLAMA_NUM_THREAD=4  
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_CTX=512
+      - OLLAMA_NUM_THREAD=4
+      - REDIS_URL=redis://redis:6379/0
     volumes:
-      - ./ml-service/app:/app/app:ro      # код только для чтения
-      - ./ml-service/.env:/app/.env:ro    # конфиг
-      - ./ml-service/results:/app/results # результаты
+      - ./ml-service/app:/app/app:ro
+      - ./ml-service/.env:/app/.env:ro
+      - ./ml-service/results:/app/results
     command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
     depends_on:
-      - ollama  # ждём, пока Ollama поднимется
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
     networks:
-      - backend-network
+      - ddd-network
     deploy:
       resources:
         limits:
-          memory: 4G  # лимит для самого ML-сервиса
+          memory: 4G
 
-  # === НОВЫЙ: Ollama сервис ===
+  worker:
+    build: .
+    command: celery -A app.worker.celery_app worker --concurrency=2 --loglevel=info -Q video_processing
+    env_file:
+      - .env
+    environment:
+      - OLLAMA_HOST=http://ollama:11434
+      - LABELING_BACKEND=ollama
+      - LABELING_MODEL_OLLAMA=qwen2.5:7b
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_CTX=512
+      - REDIS_URL=redis://redis:6379/0
+    volumes:
+      - ./ml-service/app:/app/app:ro
+      - ./ml-service/.env:/app/.env:ro
+      - ./ml-service/results:/app/results
+    depends_on:
+      redis:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+    networks:
+      - ddd-network
+    deploy:
+      resources:
+        limits:
+          memory: 8G  # воркер тяжелее — держит MediaPipe + Blender
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"   # только для отладки, в проде убрать
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - ddd-network
+    restart: unless-stopped
+
   ollama:
     image: ollama/ollama:latest
     container_name: ollama
     ports:
-      - "11434:11434"  # API для локального доступа (опционально)
+      - "11434:11434"
     volumes:
-      - ollama_models:/root/.ollama  # персистентность моделей
+      - ollama_models:/root/.ollama
     environment:
-      # === Оптимизации для Docker ===
       - OLLAMA_HOST=0.0.0.0
-      - OLLAMA_KEEP_ALIVE=24h  # не выгружать модель из памяти
-      - OLLAMA_NUM_CTX=512     # уменьшаем контекст для экономии памяти
-   
-    runtime: nvidia  # альтернативный способ для Docker Compose v2
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_NUM_CTX=512
+    
     networks:
-      - backend-network
+      - ddd-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      test: ["CMD", "ollama", "list"]
       interval: 30s
       timeout: 10s
-      retries: 5
-      start_period: 300s  # даём время на первую загрузку модели
+      retries: 2
+      start_period: 300s
 
-# === Хранение моделей ===
 volumes:
   ollama_models:
-    name: dddance_ollama_models  # именованный том для удобства
+    name: dddance_ollama_models
+  redis_data:
+    name: dddance_redis_data
 
 networks:
-  backend-network:  
+  ddd-network:
     external: true
-    name: 2026_1_davaidavaideploy_backend_ddd-network
+    name: ddd-network

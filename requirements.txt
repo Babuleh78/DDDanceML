@@ -57,3 +57,6 @@ urllib3==1.26.18
 uvicorn==0.30.6
 zipp==3.23.0
 PyGLM==2.5.7
+celery[redis]==5.3.6
+redis==5.0.1
+sse-starlette==1.8.2

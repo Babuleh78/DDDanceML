@@ -1,64 +1,73 @@
-import asyncio
 import logging
 from fastapi import APIRouter, HTTPException, status
-from typing import Dict, Any
+from app.schemas.process import ProcessRequest
+from app.worker.tasks import process_video_task
 
-from app.schemas.process import ProcessRequest, ProcessResponse
-from app.services.processing import process_video
+from app.schemas.process import ProcessUrlRequest
+from app.worker.tasks import process_video_url_task
+from sse_starlette.sse import EventSourceResponse
+from app.worker.celery_app import celery_app
+import asyncio
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/process", tags=["processing"])
-_processing_semaphore = asyncio.Semaphore(1)
+router = APIRouter(prefix="/ml", tags=["processing"])
 
 
-@router.post("/", response_model=ProcessResponse)
+@router.post("/process")
 async def process(req: ProcessRequest):
-    logger.info(f"Processing request: bucket={req.bucket}, key={req.video_key}")
+    task = process_video_task.delay(
+        video_key=req.video_key,
+        dance_id=req.dance_id,
+        enable_labeling=req.enable_labeling,
+    )
+    return {"task_id": task.id, "dance_id": req.dance_id, "status": "queued"}
+
+
+@router.get("/stream/{task_id}")
+async def stream_status(task_id: str):
+    """
+    SSE endpoint — Go backend подписывается и получает события в реальном времени.
     
-    async with _processing_semaphore:
-        try:
-            loop = asyncio.get_event_loop()
-            result = await loop.run_in_executor(
-                None, 
-                process_video, 
-                req.video_key
-            )
-            
-            return ProcessResponse(
-                result_key=result["animation_key"],  
-                segments_key=result["segments_key"], 
-                num_frames=result["num_frames"],
-                num_segments=result["num_segments"],
-                duration_sec=result["duration_sec"]
-            )
-            
-        except FileNotFoundError as e:
-            logger.error(f"Video not found: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                detail=f"NoSuchKey: {req.video_key}"
-            )
-        except RuntimeError as e:
-            error_msg = str(e)
-            if "NoSuchKey" in error_msg or "download failed" in error_msg:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=error_msg
-                )
-            elif "upload failed" in error_msg:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=error_msg
-                )
-            else:
-                raise HTTPException(
-                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail="Internal processing error"
-                )
-        except Exception as e:
-            logger.error(f"Unexpected error during processing: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail="Internal processing error"
-            )
+    События:
+        segments_ready  → сегменты готовы, можно показать список движений
+        segment_ready   → один GLB готов
+        done            → всё готово, финальный результат
+        error           → ошибка
+    """
+    async def event_generator():
+        while True:
+            task = celery_app.AsyncResult(task_id)
+
+            if task.state == "PROGRESS":
+                yield {
+                    "event": task.info.get("event", "progress"),
+                    "data": json.dumps(task.info),
+                }
+
+            elif task.state == "SUCCESS":
+                yield {
+                    "event": "done",
+                    "data": json.dumps(task.result),
+                }
+                break
+
+            elif task.state == "FAILURE":
+                yield {
+                    "event": "error",
+                    "data": json.dumps({"error": str(task.info)}),
+                }
+                break
+
+            await asyncio.sleep(1)
+
+    return EventSourceResponse(event_generator())
+
+@router.post("/process-url/")
+async def process_url(req: ProcessUrlRequest):
+    logger.info(f"Enqueue URL: {req.url}")
+    task = process_video_url_task.delay(
+        url=req.url,
+        enable_labeling=req.enable_labeling,
+    )
+    return {"task_id": task.id, "status": "queued"}
