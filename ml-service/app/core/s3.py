@@ -6,7 +6,6 @@ from app.core.config import settings
 from pathlib import Path
 import logging
 from boto3.s3.transfer import TransferConfig
-
 logger = logging.getLogger(__name__)
 
 
@@ -66,3 +65,13 @@ def upload_file(local_path: str, s3_key: str) -> None:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         error_msg = e.response.get('Error', {}).get('Message', str(e))
         raise RuntimeError(f"S3 upload failed for key '{s3_key}': {error_code} - {error_msg}")
+    
+def file_exists(key: str) -> bool:
+    try:
+        client = get_s3_client()
+        client.head_object(Bucket=settings.s3_bucket, Key=key)
+        return True
+    except ClientError as e:
+        if e.response['Error']['Code'] == '404':
+            return False
+        raise

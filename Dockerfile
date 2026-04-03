@@ -1,6 +1,5 @@
 FROM python:3.9-slim-bookworm
 ENV PYTHONUNBUFFERED=1
-
 ENV LIBGL_ALWAYS_INDIRECT=1
 ENV MESA_LOADER_DRIVER_OVERRIDE=swrast
 ENV QT_QPA_PLATFORM=offscreen
@@ -23,6 +22,8 @@ RUN wget -q https://download.blender.org/release/Blender5.1/blender-${BLENDER_VE
     && rm blender-${BLENDER_VERSION}-linux-x64.tar.xz \
     && /opt/blender/blender --version
 
+RUN pip install --no-cache-dir yt-dlp==2024.11.18
+
 ENV PATH="/opt/blender:${PATH}"
 
 WORKDIR /app
@@ -31,7 +32,8 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir mediapipe==0.10.14
+    pip install --no-cache-dir mediapipe==0.10.14 && \
+    pip install --no-cache-dir celery[redis]==5.3.6 redis==5.0.1
 
 COPY ml-service/app/ ./app/
 COPY ml-service/blender_data/ ./blender_data/

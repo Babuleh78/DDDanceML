@@ -1,11 +1,13 @@
 # app/schemas/process.py
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator, validator
 from typing import Optional
-
+import uuid
+from pydantic import BaseModel, Field
 
 class ProcessRequest(BaseModel):
-    bucket: str = Field(..., description="Название S3 bucket")
-    video_key: str = Field(..., description="Путь к видео в S3")
+    video_key: str
+    dance_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    enable_labeling: bool = True
     
     class Config:
         json_schema_extra = {
@@ -33,3 +35,14 @@ class ProcessResponse(BaseModel):
                 "duration_sec": 15.0
             }
         }
+
+class ProcessUrlRequest(BaseModel):
+    url: str
+    enable_labeling: bool = True
+
+    @field_validator("url")
+    def validate_url(cls, v):
+        allowed = ["tiktok.com", "vm.tiktok.com"]
+        if not any(domain in v for domain in allowed):
+            raise ValueError(f"Unsupported platform. Allowed: {allowed}")
+        return v
