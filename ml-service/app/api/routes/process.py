@@ -24,44 +24,15 @@ async def process(req: ProcessRequest):
     return {"task_id": task.id, "dance_id": req.dance_id, "status": "queued"}
 
 
-@router.get("/stream/{task_id}")
-async def stream_status(task_id: str):
-    """
-    SSE endpoint — Go backend подписывается и получает события в реальном времени.
-    
-    События:
-        segments_ready  → сегменты готовы, можно показать список движений
-        segment_ready   → один GLB готов
-        done            → всё готово, финальный результат
-        error           → ошибка
-    """
-    async def event_generator():
-        while True:
-            task = celery_app.AsyncResult(task_id)
-
-            if task.state == "PROGRESS":
-                yield {
-                    "event": task.info.get("event", "progress"),
-                    "data": json.dumps(task.info),
-                }
-
-            elif task.state == "SUCCESS":
-                yield {
-                    "event": "done",
-                    "data": json.dumps(task.result),
-                }
-                break
-
-            elif task.state == "FAILURE":
-                yield {
-                    "event": "error",
-                    "data": json.dumps({"error": str(task.info)}),
-                }
-                break
-
-            await asyncio.sleep(1)
-
-    return EventSourceResponse(event_generator())
+@router.get("/status/{task_id}")
+async def get_status(task_id: str):
+    from app.worker.celery_app import celery_app
+    task = celery_app.AsyncResult(task_id)
+    if task.state == "SUCCESS":
+        return {"status": "done", "result": task.result}
+    if task.state == "FAILURE":
+        return {"status": "failed", "error": str(task.info)}
+    return {"status": task.state.lower()}
 
 @router.post("/process-url/")
 async def process_url(req: ProcessUrlRequest):

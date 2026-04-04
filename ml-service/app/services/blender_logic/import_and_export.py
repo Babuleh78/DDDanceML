@@ -39,7 +39,6 @@ def _run():
     if not frames_data:
         raise ValueError("No frames")
 
-    # Нормализуем time к 0, 1, 2...
     frames_data = [{**f, "time": i} for i, f in enumerate(frames_data)]
 
     # Используем переданное num_frames или длину массива
@@ -172,14 +171,14 @@ def _run():
             filepath=str(args.output),
             export_format='GLB',
             export_animations=True,
-            export_frame_range=True,      # использует scene.frame_start/end
+            export_frame_range=True,     
             export_frame_step=1,
             export_def_bones=True,
             export_optimize_animation_size=True,
             export_force_sampling=True,
             export_apply=False,
             export_nla_strips=False,
-            export_anim_slide_to_zero=True,
+            export_anim_slide_to_zero=False,
             export_current_frame=False,
         )
     else:

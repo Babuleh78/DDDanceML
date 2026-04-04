@@ -14,7 +14,7 @@ def convert_video_to_mixamo_json(
     model_json: dict,
     fps: int = 30,
     min_visibility: float = 0.6,
-    is_hips_move: bool = False,
+    is_hips_move: bool = True,
     max_frames: int = 5000,
     is_show_result: bool = False,
 ) -> dict:

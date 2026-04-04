@@ -93,7 +93,7 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "ollama", "list"]
-      interval: 30s
+      interval: 24h
       timeout: 10s
       retries: 2
       start_period: 300s

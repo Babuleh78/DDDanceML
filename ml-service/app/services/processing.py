@@ -428,13 +428,15 @@ def process_video(
         # === Шаг 5: LLM-разметка ===
         if enable_labeling:
             logger.info("Step 5: LLM labeling...")
-            energy_values, _ = compute_energy(
-                mixamo_frames,
-                smooth_window=settings.segmenter_smooth_window,
-            )
-            segments, labeling_meta = asyncio.run(
-                _label_segments(segments, mixamo_frames, fps, energy_values)
-            )
+            labeling_meta = {"enabled": False, "strategy": None}
+            logger.info("Step 5: Labeling skipped")
+            # energy_values, _ = compute_energy(
+            #     mixamo_frames,
+            #     smooth_window=settings.segmenter_smooth_window,
+            # )
+            # segments, labeling_meta = asyncio.run(
+            #     _label_segments(segments, mixamo_frames, fps, energy_values)
+            # )
         else:
             labeling_meta = {"enabled": False, "strategy": None}
             logger.info("Step 5: Labeling skipped")
@@ -451,7 +453,7 @@ def process_video(
                 "num_frames": len(mixamo_frames),
                 "duration_sec": round(duration_sec, 3),
                 "processed_at": datetime.now(timezone.utc).isoformat(),
-                "labeling": labeling_meta,
+                #"labeling": labeling_meta,
                 "cache_stats": label_cache.stats() if enable_labeling else None,
             },
             "num_segments": len(segments),
