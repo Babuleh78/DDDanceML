@@ -8,7 +8,7 @@ celery_app = Celery(
     "dddance",
     broker=redis_url,
     backend=redis_url.replace("/0", "/1"),
-    include=["app.worker.tasks"],  # ← только это, autodiscover убрать
+    include=["app.worker.tasks"],  
 )
 
 celery_app.conf.update(

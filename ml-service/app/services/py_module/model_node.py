@@ -274,11 +274,14 @@ class ModelNode:
     def tmp_to_json(self, bones_json, visibility_list,  min_visibility=0.6):
         transform = decompose(self.animation_transform)
         visibility = visibility_list[self.idx]
-        t = glm.vec3(0.0, 0.0, 0.0)
+        t = transform[0]
         r = transform[1]
         s = glm.vec3(1.0, 1.0, 1.0)
 
-        if visibility >= min_visibility and (not (r.w == 1.0 and r.x == 0.0 and r.y == 0.0 and r.z == 0.0)):
+        if visibility >= min_visibility and (
+            t.x != 0.0 or t.y != 0.0 or t.z != 0.0 or
+            r.w != 1.0 or r.x != 0.0 or r.y != 0.0 or r.z != 0.0
+        ):
             bone_json = {
                 "name": self.prefix + self.name,
                 "rotation": glm_quat_to_json(r),

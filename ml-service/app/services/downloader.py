@@ -13,7 +13,6 @@ def download_video_from_url(url: str) -> str:
     """
     import yt_dlp
 
-    # Хэш URL → стабильное имя файла (кэш на уровне S3)
     url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
     s3_key = f"videos/url_{url_hash}.mp4"
 
@@ -30,7 +29,7 @@ def download_video_from_url(url: str) -> str:
             "outtmpl": output_path,
             "quiet": True,
             "no_warnings": True,
-            "max_filesize": 200 * 1024 * 1024,  # 200MB лимит
+            "max_filesize": 50 * 1024 * 1024,  
         }
 
         logger.info(f"Downloading: {url}")

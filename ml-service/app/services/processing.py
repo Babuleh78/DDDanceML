@@ -35,44 +35,17 @@ from app.services.skeleton_to_segments import (
     build_segments,
 )
 from app.services.video_to_mixamo import convert_video_to_mixamo_json
-from app.services.labeling.factory import get_labeling_strategy
-from app.services.labeling.features import extract_geometric_features
-from app.services.labeling.cache import label_cache
 
 CACHE_VERSION = "v2"
-def _video_cache_key(video_hash: str) -> str:
-            return f"video_result:{CACHE_VERSION}:{video_hash}"
+def _video_cache_key(video_hash: str, dance_id: str) -> str:
+    return f"video_result:{CACHE_VERSION}:{video_hash}:{dance_id}"
 print("[DEBUG processing.py] ALL IMPORTS SUCCESSFUL", file=sys.stderr)
 
 logger = logging.getLogger(__name__)
 
 
-# ---------------------------------------------------------------------------
-# Вспомогательные функции
-# ---------------------------------------------------------------------------
-
-def _make_s3_keys(dance_id: str, num_segments: int) -> dict:
-    """
-    Возвращает все S3-ключи для данного dance_id.
-
-    Структура в S3:
-        results/{dance_id}/
-            segments.json
-            segment_0.glb
-            segment_1.glb
-            ...
-    """
-    return {
-        "segments": f"results/{dance_id}/segments.json",
-        "glb": [
-            f"results/{dance_id}/segment_{i}.glb"
-            for i in range(num_segments)
-        ],
-    }
-
-
 def _video_hash(path: str) -> str:
-    """SHA256 по первому и последнему MB файла — быстрый стабильный ключ кэша."""
+    """SHA256 по первому и последнему MB файла"""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         h.update(f.read(1_048_576))
@@ -107,81 +80,6 @@ def _segment_mixamo(mixamo_frames: list, fps: float) -> tuple[list, dict]:
     return segments, energy_debug
 
 
-async def _label_segments(
-    segments: list,
-    mixamo_frames: list,
-    fps: float,
-    energy_values,
-    enable_labeling: bool = True,
-) -> tuple[list, dict]:
-    """LLM-разметка сегментов с батчингом и кэшем."""
-    labeling_meta = {
-        "enabled": enable_labeling,
-        "strategy": None,
-        "cached_hits": 0,
-        "errors": 0,
-        "processed_count": 0,
-    }
-
-    if not enable_labeling or not settings.labeling_enabled:
-        return segments, labeling_meta
-
-    strategy = get_labeling_strategy()
-    labeling_meta["strategy"] = strategy.name
-    logger.info(f"Labeling strategy: {strategy.name}, segments: {len(segments)}")
-
-    items = [
-        (
-            extract_geometric_features(
-                frames=mixamo_frames,
-                start_frame=seg["start_frame"],
-                end_frame=seg["end_frame"],
-                energy_values=energy_values,
-            ),
-            seg["duration_sec"],
-            i,
-        )
-        for i, seg in enumerate(segments)
-    ]
-
-    cached_indices = set()
-    for features, duration_sec, i in items:
-        cache_key = strategy.compute_features_hash(features, duration_sec)
-        if label_cache.get(cache_key):
-            cached_indices.add(i)
-            labeling_meta["cached_hits"] += 1
-
-    from .labeling.ollama import OllamaStrategy
-    if isinstance(strategy, OllamaStrategy):
-        labels = await strategy.generate_labels_batch(items)
-    else:
-        labels = []
-        for features, duration_sec, i in items:
-            try:
-                label = await strategy.generate_label(features, duration_sec)
-                labels.append(label)
-            except Exception as e:
-                logger.warning(f"Segment #{i} labeling failed: {e}")
-                labels.append(f"segment_{i + 1}")
-                labeling_meta["errors"] += 1
-
-    for i, (segment, label) in enumerate(zip(segments, labels)):
-        segment["label"] = label
-        segment["label_source"] = strategy.name
-        if i not in cached_indices:
-            labeling_meta["processed_count"] += 1
-
-    logger.info(
-        f"Labeling done: {labeling_meta['processed_count']} new, "
-        f"{labeling_meta['cached_hits']} cached, {labeling_meta['errors']} errors"
-    )
-    return segments, labeling_meta
-
-
-# ---------------------------------------------------------------------------
-# Blender
-# ---------------------------------------------------------------------------
-
 def _build_blender_cmd(mixamo_json_path: str, glb_output_path: str, anim_only: bool = True, num_frames: int = None) -> list[str]:
     blender_script = (
         Path(__file__).parent / "blender_logic" / "import_and_export.py"
@@ -205,8 +103,9 @@ def _build_blender_cmd(mixamo_json_path: str, glb_output_path: str, anim_only: b
         "--json", mixamo_json_path,
         "--output", glb_output_path,
         "--format", "GLB",
-         "--num-frames", str(num_frames)
     ]
+    if num_frames is not None:
+        cmd.extend(["--num-frames", str(num_frames)])
     if anim_only:
         cmd.append("--anim-only")
     return cmd
@@ -215,7 +114,6 @@ def _build_blender_cmd(mixamo_json_path: str, glb_output_path: str, anim_only: b
 def _run_blender(mixamo_json_path: str, glb_output_path: str, num_frames: int = None) -> None:
     """Запускает Blender синхронно. Вызывается в ProcessPoolExecutor."""
     cmd = _build_blender_cmd(mixamo_json_path, glb_output_path, num_frames=num_frames)
-    logger.info(f"Blender start: {glb_output_path}")
 
     try:
         result = subprocess.run(
@@ -244,14 +142,10 @@ def _run_blender_segment(args: tuple) -> tuple[int, str, str]:
 
 
 def _slice_mixamo_for_segment(mixamo_data: dict, segment: dict) -> dict:
-    """
-    start_frame/end_frame — это индексы в массиве frames, не значения time.
-    """
     all_frames = mixamo_data["frames"]
     start = segment["start_frame"]
     end = segment["end_frame"]
 
-    # Защита от выхода за границы
     start = max(0, start)
     end = min(len(all_frames), end)
 
@@ -261,8 +155,6 @@ def _slice_mixamo_for_segment(mixamo_data: dict, segment: dict) -> dict:
         raise ValueError(f"Empty slice: start={start}, end={end}, "
                          f"total={len(all_frames)}")
 
-    # Сбрасываем время к 0 — кадр 0, 1, 2...
-    # Это гарантирует что Blender начнёт анимацию с frame_start=0
     sliced_frames = [
         {**f, "time": i}
         for i, f in enumerate(sliced_frames)
@@ -282,11 +174,6 @@ def _render_segments_parallel(
     tmpdir: Path,
     progress_callback: Optional[Callable[[int, str], None]] = None,
 ) -> list[dict]:
-    """
-    Запускает Blender для каждого сегмента параллельно через потоки.
-    Потоки разрешены внутри Celery daemon-воркера, в отличие от процессов.
-    Blender всё равно запускается как внешний subprocess — параллельность есть.
-    """
     blender_args = []
     for i, segment in enumerate(segments):
         seg_data = _slice_mixamo_for_segment(mixamo_data, segment)
@@ -302,7 +189,6 @@ def _render_segments_parallel(
 
     results = []
 
-    # ThreadPoolExecutor вместо ProcessPoolExecutor
     with ThreadPoolExecutor(max_workers=2) as executor:
         future_to_idx = {
             executor.submit(_run_blender_segment, args): args[0]
@@ -314,7 +200,6 @@ def _render_segments_parallel(
             try:
                 segment_index, glb_path, s3_key = future.result()
                 s3_client.upload_file(glb_path, s3_key)
-                logger.info(f"Segment {segment_index} uploaded → {s3_key}")
 
                 results.append({
                     "index": segment_index,
@@ -337,31 +222,12 @@ def _render_segments_parallel(
     results.sort(key=lambda x: x["index"])
     return results
 
-# ---------------------------------------------------------------------------
-# Основная функция
-# ---------------------------------------------------------------------------
-
 def process_video(
     video_key: str,
     dance_id: str,
     enable_labeling: Optional[bool] = None,
     progress_callback: Optional[Callable[[str, dict], None]] = None,
 ) -> dict:
-    """
-    Полный пайплайн обработки видео.
-
-    Args:
-        video_key:         S3-ключ входного видео
-        dance_id:          UUID танца, определяет папку в S3
-        enable_labeling:   включить LLM-разметку (None = из конфига)
-        progress_callback: fn(event_name, data) — вызывается при каждом событии.
-                           Используется воркером для update_state в Celery.
-
-    Events (progress_callback):
-        "segments_ready"  → {"segments_key": str, "num_segments": int}
-        "segment_ready"   → {"index": int, "glb_key": str}
-        "pipeline_error"  → {"step": str, "error": str}
-    """
     logger.info(f"process_video START: video_key={video_key}, dance_id={dance_id}")
 
     if enable_labeling is None:
@@ -373,30 +239,26 @@ def process_video(
         tmpdir = Path(_tmpdir)
         video_path = str(tmpdir / Path(video_key).name)
     
-
          # === Шаг 1: Скачать видео из S3 ===
         logger.info(f"Step 1: Downloading {video_key}")
         s3_client.download_file(video_key, video_path)
 
         if not Path(video_path).exists():
             raise RuntimeError(f"Failed to download video: {video_path}")
-        logger.info(f"Video downloaded: {Path(video_path).stat().st_size} bytes")
-         # === Кэш по хэшу видео ===
+       
         video_hash = _video_hash(video_path)
         redis = get_redis()
         
-        cached = redis.get(_video_cache_key(video_hash))
+        cached = redis.get(_video_cache_key(video_hash, dance_id))
         if cached:
             logger.info(f"Cache hit: {video_key}")
             return json.loads(cached)
 
-
-
-        # === Шаг 2: FPS ===
+        # === Шаг 2: FPS тут чет другое было сто проц, слишком мощный отдельный шаг===
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         cap.release()
-        logger.info(f"FPS: {fps}")
+      
 
         # === Шаг 3: MediaPipe → Mixamo JSON ===
         logger.info("Step 3: MediaPipe...")
@@ -418,14 +280,13 @@ def process_video(
         )
         mixamo_frames = mixamo_data["frames"]
         duration_sec = len(mixamo_frames) / fps if fps > 0 else 0.0
-        logger.info(f"MediaPipe done: {len(mixamo_frames)} frames ({duration_sec:.2f}s)")
 
         # === Шаг 4: Сегментация ===
         logger.info("Step 4: Segmentation...")
         segments, energy_debug = _segment_mixamo(mixamo_frames, fps)
-        logger.info(f"Segments: {len(segments)}")
+      
 
-        # === Шаг 5: LLM-разметка ===
+        # === Шаг 5: LLM-разметка (болеет очень температура) ===
         if enable_labeling:
             logger.info("Step 5: LLM labeling...")
             labeling_meta = {"enabled": False, "strategy": None}
@@ -454,7 +315,7 @@ def process_video(
                 "duration_sec": round(duration_sec, 3),
                 "processed_at": datetime.now(timezone.utc).isoformat(),
                 #"labeling": labeling_meta,
-                "cache_stats": label_cache.stats() if enable_labeling else None,
+                #"cache_stats": label_cache.stats() if enable_labeling else None,
             },
             "num_segments": len(segments),
             "segments": segments,
@@ -477,8 +338,6 @@ def process_video(
             json.dump(segments_data, f, ensure_ascii=False, indent=2)
 
         s3_client.upload_file(str(segments_path), segments_key)
-        logger.info(f"segments.json uploaded → {segments_key}")
-
         # Первое событие — Go backend уже может показать список движений
         if progress_callback:
             progress_callback("segments_ready", {
@@ -511,7 +370,6 @@ def process_video(
         if failed:
             logger.warning(f"{len(failed)} segments failed: {failed}")
 
-        # === Итог ===
         processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
 
         result = {
@@ -531,10 +389,10 @@ def process_video(
             } if enable_labeling else None,
         }
 
-        redis.setex(_video_cache_key(video_hash), 86400, json.dumps(result))
+        redis.setex(_video_cache_key(video_hash, dance_id), 86400, json.dumps(result))
 
         logger.info(
-            f"✅ Done: {len(segments)} segments, "
+           
             f"{len(successful)} rendered, {processing_time:.1f}s"
         )
         return result
