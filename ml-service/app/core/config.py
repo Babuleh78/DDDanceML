@@ -37,26 +37,6 @@ class Settings(BaseSettings):
     segmenter_sensitivity: float = Field(default=0.05, env="SEGMENTER_SENSITIVITY")
     segmenter_smooth_window: int = Field(default=15, env="SEGMENTER_SMOOTH_WINDOW")
     
-    # === LLM Labeling ===
-    labeling_enabled: bool = Field(default=True, env="LABELING_ENABLED")
-    labeling_backend: Literal["openrouter", "ollama", "mock"] = Field(
-        default="ollama",  # ← по умолчанию локально!
-        env="LABELING_BACKEND"
-    )
-
-    # OpenRouter (если понадобится)
-    openrouter_api_key: str = Field(default="", env="OPENROUTER_API_KEY")
-    labeling_model: str = Field(
-        default="meta-llama/llama-3.2-3b-instruct:free",
-        env="LABELING_MODEL"
-    )
-
-    # Ollama (локальный)
-    ollama_host: str = Field(default="http://localhost:11434", env="OLLAMA_HOST")
-    labeling_model_ollama: Optional[str] = Field(
-        default="llama3.2:3b",  # ← ваша локальная модель
-        env="LABELING_MODEL_OLLAMA"
-    )
 
     # Кэширование
     labeling_cache_ttl: int = Field(default=3600, env="LABELING_CACHE_TTL")

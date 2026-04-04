@@ -36,9 +36,10 @@ async def get_status(task_id: str):
 
 @router.post("/process-url/")
 async def process_url(req: ProcessUrlRequest):
-    logger.info(f"Enqueue URL: {req.url}")
+    logger.info(f"Enqueue URL: {req.url}, dance_id={req.dance_id}")
     task = process_video_url_task.delay(
         url=req.url,
+        dance_id=req.dance_id,
         enable_labeling=req.enable_labeling,
     )
-    return {"task_id": task.id, "status": "queued"}
+    return {"task_id": task.id, "dance_id": req.dance_id, "status": "queued"}

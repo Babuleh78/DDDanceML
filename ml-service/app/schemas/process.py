@@ -38,6 +38,7 @@ class ProcessResponse(BaseModel):
 
 class ProcessUrlRequest(BaseModel):
     url: str
+    dance_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     enable_labeling: bool = True
 
     @field_validator("url")
