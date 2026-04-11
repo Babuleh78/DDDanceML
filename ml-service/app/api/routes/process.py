@@ -1,4 +1,7 @@
 import logging
+import json
+import tempfile
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
 from app.schemas.process import ProcessRequest
 from app.worker.tasks import process_video_task
@@ -7,6 +10,7 @@ from app.schemas.process import ProcessUrlRequest
 from app.worker.tasks import process_video_url_task
 from sse_starlette.sse import EventSourceResponse
 from app.worker.celery_app import celery_app
+from app.core import s3 as s3_client
 import asyncio
 
 logger = logging.getLogger(__name__)
@@ -43,3 +47,46 @@ async def process_url(req: ProcessUrlRequest):
         enable_labeling=req.enable_labeling,
     )
     return {"task_id": task.id, "dance_id": req.dance_id, "status": "queued"}
+
+
+@router.get("/segment-name/{dance_id}/{segment_idx}")
+async def get_segment_name(dance_id: str, segment_idx: int):
+    try:
+        segments_key = f"results/{dance_id}/segments.json"
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            local_path = str(Path(tmpdir) / "segments.json")
+            s3_client.download_file(segments_key, local_path)
+            
+            with open(local_path, "r", encoding="utf-8") as f:
+                segments_data = json.load(f)
+            
+            segments = segments_data.get("segments", [])
+            if segment_idx < 0 or segment_idx >= len(segments):
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Segment {segment_idx} not found. Available: 0-{len(segments)-1}"
+                )
+            
+            segment = segments[segment_idx]
+            description = segment.get("llm_description", "")
+            
+            return {
+                "dance_id": dance_id,
+                "segment_idx": segment_idx,
+                "description": description
+            }
+    
+    except HTTPException:
+        raise
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Segments data not found for dance_id: {dance_id}"
+        )
+    except Exception as e:
+        logger.error(f"Error getting segment name: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error retrieving segment: {str(e)}"
+        )
