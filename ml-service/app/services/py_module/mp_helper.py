@@ -10,6 +10,14 @@ from .shashura import ShashuraFilter
 import copy
 import numpy as np
 
+# Импортируем отладчик
+try:
+    from .mediapipe_debugger import log_raw_pose, log_glm_list, save_debug_data
+except ImportError:
+    def log_raw_pose(*args, **kwargs): pass
+    def log_glm_list(*args, **kwargs): pass
+    def save_debug_data(*args, **kwargs): pass
+
 def smooth_pose(shashura_filter, pose, time):
     t = np.ones_like(pose) * time
     return shashura_filter(t, pose)
@@ -345,6 +353,10 @@ def mediapipe_to_mixamo2(mp_manager,
             width = width2
             cap_image, glm_list, visibility_list, hip2d_left, hip2d_right, leg2d = detect_pose_to_glm_pose(
                 mp_manager, cap_image, mp_idx_mm_idx_map)
+            
+            # ОТЛАДКА: Логируем GLM list после extract
+            log_glm_list(frame_num, glm_list, visibility_list)
+            
             if glm_list[0] != None:
                 time =  math.floor(frame_num*time_factor)
                 pose_array = glm_list_to_numpy(glm_list)
@@ -362,6 +374,16 @@ def mediapipe_to_mixamo2(mp_manager,
                 mixamo_bindingpose_root_node.normalize(glm_list)
                 mixamo_bindingpose_root_node.calc_animation(glm_list)
                 mixamo_bindingpose_root_node.tmp_to_json(bones_json, visibility_list, min_visibility)
+                bones_json["landmarks"] = [
+                {
+                    "x": float(glm_list[i].x),
+                    "y": float(glm_list[i].y),
+                    "z": float(glm_list[i].z),
+                    "visibility": float(visibility_list[i]) if visibility_list[i] is not None else 0.0
+                }
+                if glm_list[i] is not None else None
+                    for i in range(len(glm_list))
+                ]
                 anim_result_json["frames"].append(bones_json)
                 if is_show_result:
                     rg = []
@@ -417,6 +439,9 @@ def mediapipe_to_mixamo2(mp_manager,
         
         cap.release()
         cv2.destroyAllWindows()
+        
+        # ОТЛАДКА: Сохраняем отладочные данные
+        save_debug_data()
 
     except Exception as e:
         if cap.isOpened():

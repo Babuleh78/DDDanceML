@@ -1,20 +1,15 @@
-version: '3.8'
-
 services:
   ml-service:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.api
     ports:
       - "8000:8000"
     env_file:
       - .env
     environment:
-      - OLLAMA_HOST=http://ollama:11434
-      - LABELING_BACKEND=ollama
-      - LABELING_MODEL_OLLAMA=qwen2.5:7b
-      - OLLAMA_KEEP_ALIVE=24h
-      - OLLAMA_NUM_CTX=512
-      - OLLAMA_NUM_THREAD=4
       - REDIS_URL=redis://redis:6379/0
+      - OLLAMA_HOST=http://ollama:11434
     volumes:
       - ./ml-service/app:/app/app:ro
       - ./ml-service/.env:/app/.env:ro
@@ -23,27 +18,28 @@ services:
     depends_on:
       redis:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
     networks:
       - ddd-network
     deploy:
       resources:
         limits:
-          memory: 4G
+          memory: 512M
 
   worker:
-    build: .
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
     command: celery -A app.worker.celery_app worker --concurrency=2 --loglevel=info -Q video_processing
     env_file:
       - .env
     environment:
+      - REDIS_URL=redis://redis:6379/0
       - OLLAMA_HOST=http://ollama:11434
       - LABELING_BACKEND=ollama
       - LABELING_MODEL_OLLAMA=qwen2.5:7b
       - OLLAMA_KEEP_ALIVE=24h
       - OLLAMA_NUM_CTX=512
-      - REDIS_URL=redis://redis:6379/0
+      - QWEN_MODEL_PATH=/models/qwen2.5-3b-instruct
     volumes:
       - ./ml-service/app:/app/app:ro
       - ./ml-service/.env:/app/.env:ro
@@ -58,12 +54,12 @@ services:
     deploy:
       resources:
         limits:
-          memory: 8G  # воркер тяжелее — держит MediaPipe + Blender
+          memory: 8G
 
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"   # только для отладки, в проде убрать
+      - "6379:6379"
     volumes:
       - redis_data:/data
     command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
@@ -87,7 +83,6 @@ services:
       - OLLAMA_HOST=0.0.0.0
       - OLLAMA_KEEP_ALIVE=24h
       - OLLAMA_NUM_CTX=512
-    
     networks:
       - ddd-network
     restart: unless-stopped
@@ -106,5 +101,4 @@ volumes:
 
 networks:
   ddd-network:
-    external: true
     name: ddd-network

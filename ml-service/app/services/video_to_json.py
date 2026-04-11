@@ -9,7 +9,7 @@ from app.services.py_module.mp_manager import MediapipeManager
 from app.services.py_module.mp_helper import mediapipe_to_mixamo
 
 
-def convert_video_to_mixamo_json(
+def convert_video_to_json(
     video_path: str,
     model_json: dict,
     fps: int = 30,

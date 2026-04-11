@@ -1,14 +1,3 @@
-"""
-Пайплайн обработки танцевального видео:
-1. Скачиваем видео из S3
-2. video_to_mixamo: MediaPipe → Mixamo JSON (кватернионы костей)
-3. skeleton_to_segments: энергетическая сегментация движений
-4. labeling: LLM-описания для каждого сегмента
-5. Загружаем segments.json в S3 (первый ответ клиенту)
-6. Blender headless: по сегментам параллельно → .glb файлы
-7. Загружаем .glb в S3 по мере готовности
-8. Возвращаем ключи
-"""
 
 import sys
 print(f"[DEBUG processing.py] Module loading, Python {sys.version}", file=sys.stderr)
@@ -34,18 +23,74 @@ from app.services.skeleton_to_segments import (
     detect_boundaries,
     build_segments,
 )
-from app.services.video_to_mixamo import convert_video_to_mixamo_json
+from app.services.video_to_json import convert_video_to_json
+from app.services.body_parts_extractor import extract_body_parts_for_segments
 
 CACHE_VERSION = "v2"
-def _video_cache_key(video_hash: str, dance_id: str) -> str:
+def _video_cache_key(video_hash: str, dance_id: str = None) -> str:
+    if dance_id is None:
+        return f"video_result:{CACHE_VERSION}:{video_hash}"
     return f"video_result:{CACHE_VERSION}:{video_hash}:{dance_id}"
 print("[DEBUG processing.py] ALL IMPORTS SUCCESSFUL", file=sys.stderr)
 
 logger = logging.getLogger(__name__)
 
 
+def _add_placeholder_descriptions(segments: list) -> list:
+    result = []
+    for i, seg in enumerate(segments):
+        seg_copy = dict(seg)
+        seg_copy["llm_description"] = f"описание сегмента {i}"
+        result.append(seg_copy)
+    return result
+
+
+def _simplify_and_enrich_segments(segments: list) -> list:
+    result = []
+    for seg in segments:
+        body_parts_desc = seg.get("body_parts_description", {})
+        features = ""
+        if isinstance(body_parts_desc, dict):
+            features = body_parts_desc.get("detailed_descriptions", "")
+        
+        simplified = {
+            "index": seg.get("index"),
+            "label": seg.get("label"),
+            "start_frame": seg.get("start_frame"),
+            "end_frame": seg.get("end_frame"),
+            "llm_description": seg.get("llm_description", ""),
+            "features": features,
+        }
+        result.append(simplified)
+    return result
+
+
+def _add_root_motion_to_frames(frames: list) -> list:
+    if not frames:
+        return frames
+    
+    result = []
+    for frame in frames:
+        frame_copy = dict(frame)
+        bones = frame_copy.get("bones", [])
+        
+        hips_bone = None
+        for bone in bones:
+            if bone.get("name") in ["Hips", "hips", "Armature|Hips", "Armature:Hips"]:
+                hips_bone = bone
+                break
+        
+        if hips_bone:
+            if "position" not in hips_bone:
+                hips_bone["position"] = {"x": 0.0, "y": 0.0, "z": 0.0}
+        
+        frame_copy["bones"] = bones
+        result.append(frame_copy)
+    
+    return result
+
+
 def _video_hash(path: str) -> str:
-    """SHA256 по первому и последнему MB файла"""
     h = hashlib.sha256()
     with open(path, "rb") as f:
         h.update(f.read(1_048_576))
@@ -58,7 +103,6 @@ def _video_hash(path: str) -> str:
 
 
 def _segment_mixamo(mixamo_frames: list, fps: float) -> tuple[list, dict]:
-    """Энергетическая сегментация: frames → segments + debug."""
     logger.info(f"_segment_mixamo: {len(mixamo_frames)} frames, fps={fps}")
 
     energy, energy_debug = compute_energy(
@@ -78,6 +122,26 @@ def _segment_mixamo(mixamo_frames: list, fps: float) -> tuple[list, dict]:
     )
     logger.info(f"_segment_mixamo done: {len(segments)} segments")
     return segments, energy_debug
+
+
+def _enrich_segments_with_body_parts(
+    segments: list,
+    mixamo_frames: list,
+    fps: float
+) -> tuple[list, list]:
+    try:
+        logger.info("Step 5.5: Body parts extraction...")
+        enriched_segments, body_parts_analysis = extract_body_parts_for_segments(
+            segments,
+            mixamo_frames,
+            fps
+        )
+        
+        logger.info(f"Body parts extraction done: {len(enriched_segments)} segments analyzed")
+        return enriched_segments, body_parts_analysis
+    except Exception as e:
+        logger.error(f"Error in body parts extraction: {e}")
+        return segments, []
 
 
 def _build_blender_cmd(mixamo_json_path: str, glb_output_path: str, anim_only: bool = True, num_frames: int = None) -> list[str]:
@@ -167,6 +231,50 @@ def _slice_mixamo_for_segment(mixamo_data: dict, segment: dict) -> dict:
         "ticksPerSecond": mixamo_data.get("ticksPerSecond", 30),
     }
 
+
+def _render_full_animation(
+    mixamo_data: dict,
+    dance_id: str,
+    tmpdir: Path,
+) -> dict:
+    """
+    Рендерит полную анимацию всего видео в один GLB файл.
+    
+    Returns:
+        dict с ключами success, glb_key, error (если есть)
+    """
+    try:
+        logger.info("Step 7a: Rendering full animation...")
+        num_frames = len(mixamo_data["frames"])
+        
+        full_json_path = str(tmpdir / "full_animation.json")
+        with open(full_json_path, "w", encoding="utf-8") as f:
+            json.dump(mixamo_data, f, ensure_ascii=False)
+        
+        glb_path = str(tmpdir / "full_animation.glb")
+        s3_key = f"results/{dance_id}/full_animation.glb"
+        
+        # Рендерим полную анимацию
+        _run_blender(full_json_path, glb_path, num_frames=num_frames)
+        
+        # Загружаем в S3
+        s3_client.upload_file(glb_path, s3_key)
+        
+        logger.info(f"Full animation rendered: {s3_key}")
+        return {
+            "success": True,
+            "glb_key": s3_key,
+            "num_frames": num_frames,
+        }
+    except Exception as e:
+        logger.error(f"Full animation rendering failed: {e}")
+        return {
+            "success": False,
+            "glb_key": None,
+            "error": str(e),
+            "num_frames": len(mixamo_data.get("frames", [])),
+        }
+
 def _render_segments_parallel(
     segments: list,
     mixamo_data: dict,
@@ -249,10 +357,14 @@ def process_video(
         video_hash = _video_hash(video_path)
         redis = get_redis()
         
-        cached = redis.get(_video_cache_key(video_hash, dance_id))
+        # Проверяем кэш только по хэшу видео (без dance_id)
+        cached = redis.get(_video_cache_key(video_hash))
         if cached:
-            logger.info(f"Cache hit: {video_key}")
-            return json.loads(cached)
+            logger.info(f"Cache hit for video_hash: {video_hash}, updating dance_id={dance_id}")
+            result = json.loads(cached)
+            # Обновляем dance_id в результате кэша
+            result["dance_id"] = dance_id
+            return result
 
         # === Шаг 2: FPS тут чет другое было сто проц, слишком мощный отдельный шаг===
         cap = cv2.VideoCapture(video_path)
@@ -269,7 +381,7 @@ def process_video(
         with open(settings.mixamo_model_path, "r", encoding="utf-8") as f:
             model_json = json.load(f)
 
-        mixamo_data = convert_video_to_mixamo_json(
+        mixamo_data = convert_video_to_json(
             video_path=video_path,
             model_json=model_json,
             fps=int(fps),
@@ -279,7 +391,47 @@ def process_video(
             is_show_result=False,
         )
         mixamo_frames = mixamo_data["frames"]
+        # Добавляем root motion (абсолютные позиции для корневой кости)
+        mixamo_frames = _add_root_motion_to_frames(mixamo_frames)
+        mixamo_data["frames"] = mixamo_frames
         duration_sec = len(mixamo_frames) / fps if fps > 0 else 0.0
+
+        frames = mixamo_data["frames"]
+        print(f"Всего кадров: {len(frames)}")
+        print(f"FPS: {mixamo_data.get('ticksPerSecond')}")
+        print(f"Duration: {mixamo_data.get('duration')}")
+
+        # Первый фрейм целиком
+        frame0 = frames[0]
+        print(f"\nКлючи фрейма: {list(frame0.keys())}")
+        print(f"time: {frame0['time']}")
+
+        # Landmarks
+        lms = frame0.get("landmarks")
+        print(f"\nlandmarks присутствует: {lms is not None}")
+        if lms:
+            print(f"Количество landmarks: {len(lms)}")
+            print(f"Пример landmark[0]: {lms[0]}")
+            print(f"Пример landmark[6]: {lms[6]}")   # LeftArm
+            print(f"Пример landmark[12]: {lms[12]}")  # RightArm
+            
+            # Проверяем что координаты не нулевые
+            non_none = [i for i, lm in enumerate(lms) if lm is not None]
+            print(f"Ненулевые landmarks: {non_none}")
+            
+            # Диапазон значений
+            import numpy as np
+            coords = np.array([[lm['x'], lm['y'], lm['z']] 
+                            for lm in lms if lm is not None])
+            print(f"\nДиапазон X: [{coords[:,0].min():.3f}, {coords[:,0].max():.3f}]")
+            print(f"Диапазон Y: [{coords[:,1].min():.3f}, {coords[:,1].max():.3f}]")
+            print(f"Диапазон Z: [{coords[:,2].min():.3f}, {coords[:,2].max():.3f}]")
+
+        # Bones для сравнения
+        bones = frame0.get("bones", [])
+        print(f"\nКоличество bones: {len(bones)}")
+        if bones:
+            print(f"Пример bone[0]: {bones[0]}")
 
         # === Шаг 4: Сегментация ===
         logger.info("Step 4: Segmentation...")
@@ -302,6 +454,14 @@ def process_video(
             labeling_meta = {"enabled": False, "strategy": None}
             logger.info("Step 5: Labeling skipped")
 
+        # === Шаг 5.5: Анализ движения по частям тела ===
+        segments, body_parts_analysis = _enrich_segments_with_body_parts(
+            segments, mixamo_frames, fps
+        )
+        segments = _add_placeholder_descriptions(segments)
+        # Упрощаем структуру: оставляем только нужные поля + добавляем features
+        segments = _simplify_and_enrich_segments(segments)
+
         # === Шаг 6: Сохранить и отдать segments.json ===
         logger.info("Step 6: Uploading segments.json...")
         segments_key = f"results/{dance_id}/segments.json"
@@ -314,8 +474,6 @@ def process_video(
                 "num_frames": len(mixamo_frames),
                 "duration_sec": round(duration_sec, 3),
                 "processed_at": datetime.now(timezone.utc).isoformat(),
-                #"labeling": labeling_meta,
-                #"cache_stats": label_cache.stats() if enable_labeling else None,
             },
             "num_segments": len(segments),
             "segments": segments,
@@ -345,8 +503,22 @@ def process_video(
                 "num_segments": len(segments),
             })
 
-        # === Шаг 7: Blender по сегментам параллельно ===
-        logger.info("Step 7: Rendering segments in parallel...")
+        # === Шаг 7: Рендеринг анимаций ===
+        logger.info("Step 7: Rendering animations...")
+
+        full_animation_result = _render_full_animation(
+            mixamo_data=mixamo_data,
+            dance_id=dance_id,
+            tmpdir=tmpdir,
+        )
+        full_glb_key = full_animation_result.get("glb_key") if full_animation_result.get("success") else None
+        
+        if progress_callback and full_glb_key:
+            progress_callback("full_animation_ready", {
+                "glb_key": full_glb_key,
+            })
+
+        logger.info("Step 7b: Rendering segments in parallel...")
 
         def on_segment_done(segment_index: int, glb_key: str):
             logger.info(f"Segment {segment_index} ready → {glb_key}")
@@ -375,6 +547,7 @@ def process_video(
         result = {
             "dance_id": dance_id,
             "segments_key": segments_key,
+            "full_glb_key": full_glb_key,
             "glb_keys": [r["glb_key"] for r in successful],
             "num_frames": len(mixamo_frames),
             "num_segments": len(segments),
@@ -389,7 +562,7 @@ def process_video(
             } if enable_labeling else None,
         }
 
-        redis.setex(_video_cache_key(video_hash, dance_id), 86400, json.dumps(result))
+        redis.setex(_video_cache_key(video_hash), 86400, json.dumps(result))
 
         logger.info(
            

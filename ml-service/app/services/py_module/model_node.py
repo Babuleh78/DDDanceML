@@ -278,16 +278,13 @@ class ModelNode:
         r = transform[1]
         s = glm.vec3(1.0, 1.0, 1.0)
 
-        if visibility >= min_visibility and (
-            t.x != 0.0 or t.y != 0.0 or t.z != 0.0 or
-            r.w != 1.0 or r.x != 0.0 or r.y != 0.0 or r.z != 0.0
-        ):
-            bone_json = {
-                "name": self.prefix + self.name,
-                "rotation": glm_quat_to_json(r),
-                "position": glm_vec3_to_json(t),
-                "scale": glm_vec3_to_json(s)
-            }
-            bones_json["bones"].append(bone_json)
+        bone_json = {
+            "name": self.prefix + self.name,
+            "rotation": glm_quat_to_json(r),
+            "position": glm_vec3_to_json(t),
+            "scale": glm_vec3_to_json(s),
+            "visibility": float(visibility) if visibility is not None else 0.0
+        }
+        bones_json["bones"].append(bone_json)
         for child in self.child:
             child.tmp_to_json(bones_json, visibility_list, min_visibility)
