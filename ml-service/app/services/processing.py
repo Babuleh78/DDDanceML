@@ -1,4 +1,5 @@
 
+import shutil
 import sys
 print(f"[DEBUG processing.py] Module loading, Python {sys.version}", file=sys.stderr)
 
@@ -357,19 +358,23 @@ def process_video(
         video_hash = _video_hash(video_path)
         redis = get_redis()
         
-        # Проверяем кэш только по хэшу видео (без dance_id)
         cached = redis.get(_video_cache_key(video_hash))
         if cached:
             logger.info(f"Cache hit for video_hash: {video_hash}, updating dance_id={dance_id}")
             result = json.loads(cached)
-            # Обновляем dance_id в результате кэша
             result["dance_id"] = dance_id
             return result
 
-        # === Шаг 2: FPS тут чет другое было сто проц, слишком мощный отдельный шаг===
+        # Загружаем видео в S3 прямо из tmpdir
+        video_s3_key = f"results/{dance_id}/video.mp4"
+        logger.info(f"Uploading video to S3: {video_path} -> {video_s3_key}")
+        s3_client.upload_file(video_path, video_s3_key)
+        logger.info(f"Video successfully uploaded to S3: {video_s3_key}")
+
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         cap.release()
+
       
 
         # === Шаг 3: MediaPipe → Mixamo JSON ===
@@ -543,6 +548,7 @@ def process_video(
             logger.warning(f"{len(failed)} segments failed: {failed}")
 
         processing_time = (datetime.now(timezone.utc) - start_time).total_seconds()
+       
 
         result = {
             "dance_id": dance_id,
@@ -554,6 +560,7 @@ def process_video(
             "num_segments_rendered": len(successful),
             "duration_sec": round(duration_sec, 3),
             "processing_time_sec": round(processing_time, 2),
+            "video_path": video_s3_key,  # <-- S3 ключ вместо локального пути
             "labeling_summary": {
                 "strategy": labeling_meta.get("strategy"),
                 "processed": labeling_meta.get("processed_count", 0),

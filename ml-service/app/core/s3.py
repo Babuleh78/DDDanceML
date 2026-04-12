@@ -44,11 +44,19 @@ def upload_file(local_path: str, s3_key: str) -> None:
     if not local_path_obj.exists():
         raise FileNotFoundError(f"File not found: {local_path}")
     
-   
     config = TransferConfig(
-        multipart_threshold=100 * 1024 * 1024, 
+        multipart_threshold=100 * 1024 * 1024,
         use_threads=False,
     )
+
+    if s3_key.endswith('.glb'):
+        content_type = 'model/gltf-binary'
+    elif s3_key.endswith('.mp4'):
+        content_type = 'video/mp4'
+    elif s3_key.endswith('.json'):
+        content_type = 'application/json'
+    else:
+        content_type = 'application/octet-stream'
     
     try:
         client.upload_file(
@@ -56,11 +64,8 @@ def upload_file(local_path: str, s3_key: str) -> None:
             settings.s3_bucket,
             s3_key,
             Config=config,
-            ExtraArgs={
-                'ContentType': 'model/gltf-binary' if s3_key.endswith('.glb') else 'application/json',
-            }
+            ExtraArgs={'ContentType': content_type},
         )
-        
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         error_msg = e.response.get('Error', {}).get('Message', str(e))
