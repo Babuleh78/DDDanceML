@@ -49,8 +49,8 @@ async def process_url(req: ProcessUrlRequest):
     return {"task_id": task.id, "dance_id": req.dance_id, "status": "queued"}
 
 
-@router.get("/segment-name/{dance_id}/{segment_idx}")
-async def get_segment_name(dance_id: str, segment_idx: int):
+@router.get("/segment_description/{dance_id}/{segment_idx}")
+async def get_segment_description(dance_id: str, segment_idx: int):
     try:
         segments_key = f"results/{dance_id}/segments.json"
         
@@ -68,13 +68,12 @@ async def get_segment_name(dance_id: str, segment_idx: int):
                     detail=f"Segment {segment_idx} not found. Available: 0-{len(segments)-1}"
                 )
             
-            segment = segments[segment_idx]
-            description = segment.get("llm_description", "")
+            description = _generate_segment_description(segment_idx)
             
             return {
                 "dance_id": dance_id,
                 "segment_idx": segment_idx,
-                "description": description
+                "description": description,
             }
     
     except HTTPException:
@@ -85,8 +84,12 @@ async def get_segment_name(dance_id: str, segment_idx: int):
             detail=f"Segments data not found for dance_id: {dance_id}"
         )
     except Exception as e:
-        logger.error(f"Error getting segment name: {e}")
+        logger.error(f"Error getting segment description: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error retrieving segment: {str(e)}"
         )
+
+
+def _generate_segment_description(segment_idx: int) -> str:
+    return f"скоро будет описание сегмента {segment_idx}"
