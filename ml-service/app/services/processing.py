@@ -15,6 +15,9 @@ from typing import Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import cv2
 
+from scipy.ndimage import uniform_filter1d
+import numpy as np
+
 from app.core.config import settings
 from app.core import s3 as s3_client
 from app.core.redis_client import get_redis
@@ -46,51 +49,28 @@ def _add_placeholder_descriptions(segments: list) -> list:
     return result
 
 
+
 def _simplify_and_enrich_segments(segments: list) -> list:
+    from app.services.dance_compare.dance_compare import extract_numeric_metrics
+ 
     result = []
     for seg in segments:
         body_parts_desc = seg.get("body_parts_description", {})
         features = ""
         if isinstance(body_parts_desc, dict):
             features = body_parts_desc.get("detailed_descriptions", "")
-        
-        simplified = {
-            "index": seg.get("index"),
-            "label": seg.get("label"),
-            "start_frame": seg.get("start_frame"),
-            "end_frame": seg.get("end_frame"),
+ 
+        result.append({
+            "index":           seg.get("index"),
+            "label":           seg.get("label"),
+            "start_frame":     seg.get("start_frame"),
+            "end_frame":       seg.get("end_frame"),
             "llm_description": seg.get("llm_description", ""),
-            "features": features,
-        }
-        result.append(simplified)
+            "features":        features,
+            "numeric_metrics": extract_numeric_metrics(seg),
+        })
     return result
-
-
-def _add_root_motion_to_frames(frames: list) -> list:
-    if not frames:
-        return frames
-    
-    result = []
-    for frame in frames:
-        frame_copy = dict(frame)
-        bones = frame_copy.get("bones", [])
-        
-        hips_bone = None
-        for bone in bones:
-            if bone.get("name") in ["Hips", "hips", "Armature|Hips", "Armature:Hips"]:
-                hips_bone = bone
-                break
-        
-        if hips_bone:
-            if "position" not in hips_bone:
-                hips_bone["position"] = {"x": 0.0, "y": 0.0, "z": 0.0}
-        
-        frame_copy["bones"] = bones
-        result.append(frame_copy)
-    
-    return result
-
-
+ 
 def _video_hash(path: str) -> str:
     h = hashlib.sha256()
     with open(path, "rb") as f:
@@ -177,7 +157,6 @@ def _build_blender_cmd(mixamo_json_path: str, glb_output_path: str, anim_only: b
 
 
 def _run_blender(mixamo_json_path: str, glb_output_path: str, num_frames: int = None) -> None:
-    """Запускает Blender синхронно. Вызывается в ProcessPoolExecutor."""
     cmd = _build_blender_cmd(mixamo_json_path, glb_output_path, num_frames=num_frames)
 
     try:
@@ -238,12 +217,6 @@ def _render_full_animation(
     dance_id: str,
     tmpdir: Path,
 ) -> dict:
-    """
-    Рендерит полную анимацию всего видео в один GLB файл.
-    
-    Returns:
-        dict с ключами success, glb_key, error (если есть)
-    """
     try:
         logger.info("Step 7a: Rendering full animation...")
         num_frames = len(mixamo_data["frames"])
@@ -255,10 +228,8 @@ def _render_full_animation(
         glb_path = str(tmpdir / "full_animation.glb")
         s3_key = f"results/{dance_id}/full_animation.glb"
         
-        # Рендерим полную анимацию
         _run_blender(full_json_path, glb_path, num_frames=num_frames)
         
-        # Загружаем в S3
         s3_client.upload_file(glb_path, s3_key)
         
         logger.info(f"Full animation rendered: {s3_key}")
@@ -298,7 +269,7 @@ def _render_segments_parallel(
 
     results = []
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         future_to_idx = {
             executor.submit(_run_blender_segment, args): args[0]
             for args in blender_args
@@ -330,6 +301,8 @@ def _render_segments_parallel(
 
     results.sort(key=lambda x: x["index"])
     return results
+
+
 
 def process_video(
     video_key: str,
@@ -365,7 +338,6 @@ def process_video(
             result["dance_id"] = dance_id
             return result
 
-        # Загружаем видео в S3 прямо из tmpdir
         video_s3_key = f"results/{dance_id}/video.mp4"
         logger.info(f"Uploading video to S3: {video_path} -> {video_s3_key}")
         s3_client.upload_file(video_path, video_s3_key)
@@ -375,7 +347,6 @@ def process_video(
         fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
         cap.release()
 
-      
 
         # === Шаг 3: MediaPipe → Mixamo JSON ===
         logger.info("Step 3: MediaPipe...")
@@ -391,80 +362,79 @@ def process_video(
             model_json=model_json,
             fps=int(fps),
             min_visibility=settings.mixamo_min_visibility,
-            is_hips_move=settings.mixamo_hips_move,
+            is_hips_move=True,
             max_frames=settings.mixamo_max_frames,
             is_show_result=False,
         )
         mixamo_frames = mixamo_data["frames"]
-        # Добавляем root motion (абсолютные позиции для корневой кости)
-        mixamo_frames = _add_root_motion_to_frames(mixamo_frames)
+        for i in [0, 1, 5, 10, 50, 100]:
+            if i < len(mixamo_frames):
+                bones = mixamo_frames[i].get("bones", [])
+                for b in bones:
+                    if b.get("name", "").endswith(":Hips"):
+                        pos = b.get("position", {})
+                        print(f"Frame {i} Hips: x={pos.get('x',0):.2f} y={pos.get('y',0):.2f} z={pos.get('z',0):.2f}")
+       
+        # mixamo_frames = _add_root_motion_to_frames(mixamo_frames)
+
+      
         mixamo_data["frames"] = mixamo_frames
         duration_sec = len(mixamo_frames) / fps if fps > 0 else 0.0
+      
+        
+        z_values = []
+        for frame in mixamo_frames:
+            lms = frame.get("landmarks")
+            if lms and lms[0] is not None:
+                z_values.append(lms[0]['z'])
+    
+        z_bone_values = []
+        for frame in mixamo_frames:
+            for b in frame.get("bones", []):
+                if b.get("name", "").endswith(":Hips"):
+                    z_bone_values.append(b["position"].get("z", 0))
 
-        frames = mixamo_data["frames"]
-        print(f"Всего кадров: {len(frames)}")
-        print(f"FPS: {mixamo_data.get('ticksPerSecond')}")
-        print(f"Duration: {mixamo_data.get('duration')}")
+        z_arr = np.array(z_bone_values)
+        hips_x, hips_y, hips_z, hips_indices = [], [], [], []
 
-        # Первый фрейм целиком
-        frame0 = frames[0]
-        print(f"\nКлючи фрейма: {list(frame0.keys())}")
-        print(f"time: {frame0['time']}")
+        for i, frame in enumerate(mixamo_frames):
+            for b in frame.get("bones", []):
+                if b.get("name", "").endswith(":Hips"):
+                    pos = b.get("position", {})
+                    hips_x.append(pos.get("x", 0.0))
+                    hips_y.append(pos.get("y", 0.0))
+                    hips_z.append(pos.get("z", 0.0))
+                    hips_indices.append(i)
 
-        # Landmarks
-        lms = frame0.get("landmarks")
-        print(f"\nlandmarks присутствует: {lms is not None}")
-        if lms:
-            print(f"Количество landmarks: {len(lms)}")
-            print(f"Пример landmark[0]: {lms[0]}")
-            print(f"Пример landmark[6]: {lms[6]}")   # LeftArm
-            print(f"Пример landmark[12]: {lms[12]}")  # RightArm
+        if hips_x:
+            window = 25 
+            sx = uniform_filter1d(hips_x, size=window)
+            sy = uniform_filter1d(hips_y, size=window)
+            sz = uniform_filter1d(hips_z, size=window)
             
-            # Проверяем что координаты не нулевые
-            non_none = [i for i, lm in enumerate(lms) if lm is not None]
-            print(f"Ненулевые landmarks: {non_none}")
-            
-            # Диапазон значений
-            import numpy as np
-            coords = np.array([[lm['x'], lm['y'], lm['z']] 
-                            for lm in lms if lm is not None])
-            print(f"\nДиапазон X: [{coords[:,0].min():.3f}, {coords[:,0].max():.3f}]")
-            print(f"Диапазон Y: [{coords[:,1].min():.3f}, {coords[:,1].max():.3f}]")
-            print(f"Диапазон Z: [{coords[:,2].min():.3f}, {coords[:,2].max():.3f}]")
+            sx = sx - sx[0]
+            sy = sy - np.median(sy) 
+            sz = sz - np.median(sz)
+    
+            Z_HARD_LIMIT = 1.0 
+            sz = Z_HARD_LIMIT * np.tanh(sz / Z_HARD_LIMIT)
 
-        # Bones для сравнения
-        bones = frame0.get("bones", [])
-        print(f"\nКоличество bones: {len(bones)}")
-        if bones:
-            print(f"Пример bone[0]: {bones[0]}")
+            
+            for j, i in enumerate(hips_indices):
+                for b in mixamo_frames[i].get("bones", []):
+                    if b.get("name", "").endswith(":Hips"):
+                        b["position"]["x"] = float(sx[j])
+                        b["position"]["y"] = float(sy[j])
+                        b["position"]["z"] = float(sz[j])
 
         # === Шаг 4: Сегментация ===
         logger.info("Step 4: Segmentation...")
         segments, energy_debug = _segment_mixamo(mixamo_frames, fps)
-      
-
-        # === Шаг 5: LLM-разметка (болеет очень температура) ===
-        if enable_labeling:
-            logger.info("Step 5: LLM labeling...")
-            labeling_meta = {"enabled": False, "strategy": None}
-            logger.info("Step 5: Labeling skipped")
-            # energy_values, _ = compute_energy(
-            #     mixamo_frames,
-            #     smooth_window=settings.segmenter_smooth_window,
-            # )
-            # segments, labeling_meta = asyncio.run(
-            #     _label_segments(segments, mixamo_frames, fps, energy_values)
-            # )
-        else:
-            labeling_meta = {"enabled": False, "strategy": None}
-            logger.info("Step 5: Labeling skipped")
-
-        # === Шаг 5.5: Анализ движения по частям тела ===
+    
         segments, body_parts_analysis = _enrich_segments_with_body_parts(
             segments, mixamo_frames, fps
         )
         segments = _add_placeholder_descriptions(segments)
-        # Упрощаем структуру: оставляем только нужные поля + добавляем features
         segments = _simplify_and_enrich_segments(segments)
 
         # === Шаг 6: Сохранить и отдать segments.json ===
@@ -501,7 +471,6 @@ def process_video(
             json.dump(segments_data, f, ensure_ascii=False, indent=2)
 
         s3_client.upload_file(str(segments_path), segments_key)
-        # Первое событие — Go backend уже может показать список движений
         if progress_callback:
             progress_callback("segments_ready", {
                 "segments_key": segments_key,
@@ -560,13 +529,8 @@ def process_video(
             "num_segments_rendered": len(successful),
             "duration_sec": round(duration_sec, 3),
             "processing_time_sec": round(processing_time, 2),
-            "video_path": video_s3_key,  # <-- S3 ключ вместо локального пути
-            "labeling_summary": {
-                "strategy": labeling_meta.get("strategy"),
-                "processed": labeling_meta.get("processed_count", 0),
-                "cached": labeling_meta.get("cached_hits", 0),
-                "errors": labeling_meta.get("errors", 0),
-            } if enable_labeling else None,
+            "video_path": video_s3_key, 
+        
         }
 
         redis.setex(_video_cache_key(video_hash), 86400, json.dumps(result))
