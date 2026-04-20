@@ -43,7 +43,17 @@ class ProcessUrlRequest(BaseModel):
 
     @field_validator("url")
     def validate_url(cls, v):
-        allowed = ["tiktok.com", "vm.tiktok.com"]
+        allowed =[
+            "tiktok.com",
+            "vm.tiktok.com",
+            "instagram.com",
+            "instagr.am",
+            "youtube.com",
+            "youtu.be",
+            "vk.com",
+            "vk.video",
+            "vkvideo.ru",
+        ]
         if not any(domain in v for domain in allowed):
             raise ValueError(f"Unsupported platform. Allowed: {allowed}")
         return v

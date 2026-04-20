@@ -10,6 +10,26 @@ from .shashura import ShashuraFilter
 import copy
 import numpy as np
 
+_NORMAL_WINDOW   = 7
+_EXTREMITY_WINDOW = 15
+ 
+
+_EXTREMITY_INDICES = {
+    8,   # LeftHand
+    9,   # LeftHandThumb1
+    10,  # LeftHandIndex1
+    11,  # LeftHandPinky1
+    14,  # RightHand
+    15,  # RightHandThumb1
+    16,  # RightHandIndex1
+    17,  # RightHandPinky1
+    20,  # LeftFoot
+    21,  # LeftToeBase
+    24,  # RightFoot
+    25,  # RightToeBase
+}
+ 
+
 # Импортируем отладчик
 try:
     from .mediapipe_debugger import log_raw_pose, log_glm_list, save_debug_data
@@ -147,13 +167,13 @@ def get_name_idx_map():
 # [Mixamo name, idx, parent_idx, mediapipe name]
 def get_mixamo_names():
     return [
-        ['Hips', 0, -1],  # left hip <->right hip
+        ['Hips', 0, -1],  
         ['Spine', 1, 0],
         ['Spine1', 2, 1],
         ['Spine2', 3, 2],
 
-        ['Neck', 4, 3],  # left_shoulder <-> right_shoulder
-        ['Head', 5, 4],  # left_ear <-> right_ear
+        ['Neck', 4, 3], 
+        ['Head', 5, 4],  
 
         ['LeftArm', 6, 3, "left_shoulder"],
         ['LeftForeArm', 7, 6, "left_elbow"],
@@ -321,6 +341,9 @@ def mediapipe_to_mixamo2(mp_manager,
     origin = None
     factor = 0.0
     factor_list = []
+
+    hip_world_origin = None
+
     width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
     height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
 
@@ -339,6 +362,9 @@ def mediapipe_to_mixamo2(mp_manager,
         min_visibility = mp_manager.min_visibility
         is_hips_move = mp_manager.is_hips_move
         shashura_filter = ShashuraFilter(min_cutoff=1.0, beta=0.1)
+
+        hip_world_origin = None
+        hips_scale_origin = None
         while cap.isOpened():
 
             success, cap_image = cap.read()
@@ -354,7 +380,6 @@ def mediapipe_to_mixamo2(mp_manager,
             cap_image, glm_list, visibility_list, hip2d_left, hip2d_right, leg2d = detect_pose_to_glm_pose(
                 mp_manager, cap_image, mp_idx_mm_idx_map)
             
-            # ОТЛАДКА: Логируем GLM list после extract
             log_glm_list(frame_num, glm_list, visibility_list)
             
             if glm_list[0] != None:
@@ -374,6 +399,12 @@ def mediapipe_to_mixamo2(mp_manager,
                 mixamo_bindingpose_root_node.normalize(glm_list)
                 mixamo_bindingpose_root_node.calc_animation(glm_list)
                 mixamo_bindingpose_root_node.tmp_to_json(bones_json, visibility_list, min_visibility)
+                raw_hip = glm_list[Mixamo.Hips]  
+                if hip_world_origin is None:
+                    hip_world_origin = glm.vec3(raw_hip.x, raw_hip.y, raw_hip.z)
+
+                hips_bone = find_bones(bones_json["bones"], Mixamo.Hips.name)
+               
                 bones_json["landmarks"] = [
                 {
                     "x": float(glm_list[i].x),
@@ -405,12 +436,17 @@ def mediapipe_to_mixamo2(mp_manager,
 
                     if origin == None:
                         origin = avg_vec3(hip2d_left, hip2d_right)
+                        hips_scale_origin = glm.distance(hip2d_left, hip2d_right)
                     else:
                         hips2d_scale = glm.distance(hip2d_left, hip2d_right)
                         leg2d_scale = glm.distance(leg2d, hip2d_right)
                         factor_list.append(model_scale2/leg2d_scale)
                         factor = max(factor, model_scale/hips2d_scale)
-                        hip_move_list.append([len(anim_result_json["frames"]) -1, avg_vec3(hip2d_left, hip2d_right)])
+                        hip_move_list.append([
+                            len(anim_result_json["frames"]) - 1,
+                            avg_vec3(hip2d_left, hip2d_right),
+                            hips2d_scale
+    ])
 
             key = cv2.waitKey(5)
             if key & 0xFF == 27:
@@ -428,19 +464,33 @@ def mediapipe_to_mixamo2(mp_manager,
            factor = mp_manager.factor
         
         for hips_bone in hip_move_list:
-            set_hips_position(find_bones(anim_result_json["frames"][hips_bone[0]]["bones"], Mixamo.Hips.name)["position"],
-                              origin, 
-                              hips_bone[1], 
-                              factor)
+            set_hips_position(
+                find_bones(anim_result_json["frames"][hips_bone[0]]["bones"], 
+                        Mixamo.Hips.name)["position"],
+                origin,
+                hips_bone[1],
+                factor,
+                hips_scale_origin=hips_scale_origin,
+                current_scale=glm.length(glm.vec3(
+                    hips_bone[1].x - origin.x,
+                    hips_bone[1].y - origin.y,
+                    hips_bone[1].z - origin.z
+                )) if len(hips_bone) < 3 else hips_bone[2]
+            )
         if anim_result_json["frames"][0]["time"] != 0.0:
             tmp_json = copy.deepcopy(anim_result_json["frames"][0])
             tmp_json["time"] = 0.0
             anim_result_json["frames"].append(tmp_json)
+
+        from app.services.py_module.mp_helper import postprocess_frames
+        anim_result_json["frames"] = postprocess_frames(
+            anim_result_json["frames"],
+            min_visibility=min_visibility,
+        )
         
         cap.release()
         cv2.destroyAllWindows()
         
-        # ОТЛАДКА: Сохраняем отладочные данные
         save_debug_data()
 
     except Exception as e:
@@ -471,8 +521,14 @@ def detect_pose_to_glm_pose(mp_manager, image, mp_idx_mm_idx_map):
     if results.pose_world_landmarks:
         landmark = results.pose_world_landmarks.landmark
 
-        glm_list[Mixamo.Hips] = avg_vec3(
-            landmark[mp_manager.mp_pose.PoseLandmark.LEFT_HIP], landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP])
+        glm_list[Mixamo.Hips] = glm.vec3(
+            (landmark[mp_manager.mp_pose.PoseLandmark.LEFT_HIP].x + 
+            landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP].x) * 0.5,
+            -(landmark[mp_manager.mp_pose.PoseLandmark.LEFT_HIP].y + 
+            landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP].y) * 0.5,
+            -(landmark[mp_manager.mp_pose.PoseLandmark.LEFT_HIP].z + 
+            landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP].z) * 0.5,
+        )
         visibility_list[Mixamo.Hips] = (landmark[mp_manager.mp_pose.PoseLandmark.LEFT_HIP].visibility +
                                         landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP].visibility)*0.5
         glm_list[Mixamo.Neck] = avg_vec3(
@@ -538,10 +594,123 @@ def avg_vec3(v1, v2):
     return v3
 
 
-def set_hips_position(hips_bone_json, origin_hips, current_hips, factor):
+
+def set_hips_position(hips_bone_json, origin_hips, current_hips,
+                      factor, hips_scale_origin=None, current_scale=None):
     x = (current_hips.x - origin_hips.x) * factor
     y = (current_hips.y - origin_hips.y) * factor
-    z = (current_hips.z - origin_hips.z) * factor
-    hips_bone_json["x"] = x 
+ 
+    if (hips_scale_origin is not None
+            and current_scale is not None
+            and hips_scale_origin > 1e-6
+            and current_scale > 1e-6):
+ 
+        scale_ratio = (current_scale / hips_scale_origin) - 1.0
+        Z_SCALE = factor * hips_scale_origin * 0.5 
+        z_raw = scale_ratio * Z_SCALE
+        Z_MAX = factor * 1.5  
+        z = float(Z_MAX * np.tanh(z_raw / (Z_MAX + 1e-9)))
+    else:
+        z = 0.0 
+ 
+    hips_bone_json["x"] = x
     hips_bone_json["y"] = -y
     hips_bone_json["z"] = z
+
+
+
+
+def _interpolate_invisible(positions: np.ndarray,
+                            visibility: np.ndarray,
+                            min_vis: float = 0.5) -> np.ndarray:
+    result = positions.copy()
+    N = len(positions)
+    bad = visibility < min_vis
+ 
+    if not bad.any():
+        return result
+ 
+    good_indices = np.where(~bad)[0]
+    if len(good_indices) == 0:
+        return result
+ 
+    for i in np.where(bad)[0]:
+        left_candidates  = good_indices[good_indices < i]
+        right_candidates = good_indices[good_indices > i]
+ 
+        if len(left_candidates) == 0:
+            result[i] = result[right_candidates[0]]
+        elif len(right_candidates) == 0:
+            result[i] = result[left_candidates[-1]]
+        else:
+            l_idx = left_candidates[-1]
+            r_idx = right_candidates[0]
+            alpha = (i - l_idx) / (r_idx - l_idx)
+            result[i] = (1 - alpha) * result[l_idx] + alpha * result[r_idx]
+ 
+    return result
+
+
+def _smooth_bone(positions: np.ndarray, bone_idx: int, fps: float) -> np.ndarray:
+    N = len(positions)
+    if N < 5:
+        return positions
+ 
+    if bone_idx in _EXTREMITY_INDICES:
+        window = min(_EXTREMITY_WINDOW, N if N % 2 == 1 else N - 1)
+    else:
+        window = min(_NORMAL_WINDOW, N if N % 2 == 1 else N - 1)
+ 
+    window = window if window % 2 == 1 else window - 1
+    window = max(window, 5)
+ 
+    try:
+        return _savgol(positions, window_length=window, polyorder=2, axis=0)
+    except Exception:
+        return positions
+    
+
+def postprocess_frames(frames: list, min_visibility: float = 0.5) -> list:
+    if not frames:
+        return frames
+ 
+    N = len(frames)
+    n_bones = len(frames[0].get("landmarks", []) or [])
+    if n_bones == 0:
+        return frames
+ 
+    positions   = np.zeros((N, n_bones, 3),  dtype=np.float32)
+    visibilities = np.zeros((N, n_bones),    dtype=np.float32)
+ 
+    for fi, frame in enumerate(frames):
+        lms = frame.get("landmarks") or []
+        for bi, lm in enumerate(lms):
+            if lm is not None:
+                positions[fi, bi]    = [lm["x"], lm["y"], lm["z"]]
+                visibilities[fi, bi] = lm.get("visibility", 1.0)
+ 
+    for bi in range(n_bones):
+        positions[:, bi, :] = _interpolate_invisible(
+            positions[:, bi, :], visibilities[:, bi], min_visibility
+        )
+ 
+    fps = 30.0
+    for bi in range(n_bones):
+        positions[:, bi, :] = _smooth_bone(positions[:, bi, :], bi, fps)
+ 
+    for fi, frame in enumerate(frames):
+        lms = frame.get("landmarks") or []
+        for bi in range(min(n_bones, len(lms))):
+            if lms[bi] is not None:
+                lms[bi]["x"] = float(positions[fi, bi, 0])
+                lms[bi]["y"] = float(positions[fi, bi, 1])
+                lms[bi]["z"] = float(positions[fi, bi, 2])
+            else:
+                lms[bi] = {
+                    "x": float(positions[fi, bi, 0]),
+                    "y": float(positions[fi, bi, 1]),
+                    "z": float(positions[fi, bi, 2]),
+                    "visibility": float(visibilities[fi, bi]),
+                }
+ 
+    return frames

@@ -63,3 +63,5 @@ sse-starlette==1.8.2
 torch==2.1.2
 transformers==4.41.0
 accelerate==0.30.0
+yt-dlp>=2025.3.31
+pytubefix>=8.0.0

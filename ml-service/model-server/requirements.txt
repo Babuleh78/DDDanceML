@@ -1,0 +1,19 @@
+# Web framework
+fastapi==0.115.0
+uvicorn==0.30.6
+
+# HuggingFace — обновленные и совместимые версии
+huggingface_hub==0.26.0
+transformers==4.46.0
+peft==0.14.0
+accelerate==0.34.0
+tokenizers==0.20.0
+
+# Torch — ставим отдельно в Dockerfile
+# torch — не указываем здесь
+
+# Токенайзер Qwen и зависимости
+sentencepiece==0.2.0
+protobuf==5.28.0
+tiktoken==0.8.0
+safetensors==0.4.5

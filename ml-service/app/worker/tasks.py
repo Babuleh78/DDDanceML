@@ -31,3 +31,18 @@ def process_video_url_task(self, url: str, dance_id: str, enable_labeling: bool 
         return process_video(video_key, dance_id, enable_labeling)
     except Exception as exc:
         raise self.retry(exc=exc)
+    
+@celery_app.task(
+    bind=True,
+    name="compare_dance",
+    max_retries=2,
+    default_retry_delay=10,
+    queue="video_processing",
+)
+def compare_dance_task(self, video_key: str, dance_id: str, segment_idx: int = -1):
+    from app.services.dance_compare import compare_dance
+    try:
+        return compare_dance(video_key, dance_id, segment_idx)
+    except Exception as exc:
+        raise self.retry(exc=exc)
+ 

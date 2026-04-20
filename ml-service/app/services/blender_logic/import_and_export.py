@@ -16,6 +16,8 @@ def _run():
     parser.add_argument("--anim-only", action="store_true")
     parser.add_argument("--num-frames", type=int, default=None,
                         help="Точное количество кадров для экспорта")
+    parser.add_argument("--root-y-offset", type=float, default=0.0,
+                        help="Доп. смещение корневой кости по Y (в метрах)")
     args = parser.parse_args(argv)
 
     with open(args.json, "r", encoding="utf-8") as f:
@@ -78,11 +80,20 @@ def _run():
                 return v
         return None
 
+    # 🔹 Находим корневую кость (без родителя)
     root_bone_name = None
     for bone in armature_obj.data.bones:
         if bone.parent is None:
             root_bone_name = bone.name
             break
+    
+    if root_bone_name:
+        print(f"[BLENDER] Root bone found: {root_bone_name}", file=sys.stderr)
+    else:
+        print("[BLENDER] ⚠️ Root bone NOT found — will not fix Y position", file=sys.stderr)
+
+    # 🔹 Переменная для хранения базовой высоты (из первого кадра)
+    root_base_y = None
 
     for i, fd in enumerate(frames_data):
         if i >= total_frames:
@@ -112,14 +123,26 @@ def _run():
             pos = bd.get("position")
             if pos:
                 try:
-                    pb.location = mathutils.Vector((
+                    loc = mathutils.Vector((
                         float(pos.get("x", 0)),
                         float(pos.get("y", 0)),
                         float(pos.get("z", 0)),
                     ))
+                    
+                    # 🔹 ФИКС: если это корневая кость — фиксируем Y
+                    if bn == root_bone_name:
+                        if root_base_y is None:
+                            # Первый кадр: запоминаем базовую высоту + применяем оффсет
+                            root_base_y = loc.y + args.root_y_offset
+                            print(f"[BLENDER] Root base Y: {root_base_y:.4f} (offset: {args.root_y_offset})", file=sys.stderr)
+                        
+                        # Принудительно устанавливаем фиксированный Y
+                        loc.y = root_base_y
+                    
+                    pb.location = loc
                     pb.keyframe_insert(data_path="location", frame=frame_idx)
-                except Exception:
-                    pass
+                except Exception as e:
+                    print(f"[BLENDER] Error setting position for {bn}: {e}", file=sys.stderr)
 
     try:
         for fc in action.fcurves:
