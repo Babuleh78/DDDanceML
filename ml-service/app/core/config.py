@@ -46,6 +46,9 @@ class Settings(BaseSettings):
     # === Debug ===
     debug_mode: bool = Field(default=False, env="DEBUG_MODE")
 
+    # config.py
+    ytdlp_proxy: Optional[str] = Field(default=None, env="YTDLP_PROXY")
+
 
 # Глобальный инстанс
 settings = Settings()
