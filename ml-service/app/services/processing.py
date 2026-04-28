@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Optional, Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import cv2
+import subprocess
 
 from scipy.ndimage import uniform_filter1d
 import numpy as np
@@ -38,6 +39,36 @@ def _video_cache_key(video_hash: str, dance_id: str = None) -> str:
 print("[DEBUG processing.py] ALL IMPORTS SUCCESSFUL", file=sys.stderr)
 
 logger = logging.getLogger(__name__)
+
+def _ensure_h264(video_path: str) -> str:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=codec_name",
+         "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+        capture_output=True, text=True
+    )
+    codec = probe.stdout.strip()
+    logger.info(f"Video codec: {codec}")
+
+    if codec in ("av1", "vp9", "vp8", "hevc"):
+        out_path = video_path.replace(".mp4", "_h264.mp4")
+        logger.info(f"Transcoding {codec} → h264: {out_path}")
+        result = subprocess.run([
+            "ffmpeg", "-y",
+            "-i", video_path,
+            "-c:v", "libx264",
+            "-preset", "fast",
+            "-crf", "23",
+            "-c:a", "aac",
+            out_path
+        ], capture_output=True, text=True)
+
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg transcode failed:\n{result.stderr}")
+        return out_path
+
+    return video_path
+
 
 
 def _add_placeholder_descriptions(segments: list) -> list:
@@ -324,6 +355,7 @@ def process_video(
          # === Шаг 1: Скачать видео из S3 ===
         logger.info(f"Step 1: Downloading {video_key}")
         s3_client.download_file(video_key, video_path)
+        video_path = _ensure_h264(video_path)
 
         if not Path(video_path).exists():
             raise RuntimeError(f"Failed to download video: {video_path}")

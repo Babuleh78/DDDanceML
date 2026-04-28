@@ -6,6 +6,7 @@ import subprocess
 from pathlib import Path
 from enum import Enum
 from app.core import s3 as s3_client
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class Platform(Enum):
 
 def detect_platform(url: str) -> Platform:
     url_lower = url.lower()
-    if re.search(r"(tiktok\.com|vm\.tiktok\.com)", url_lower):
+    if re.search(r"(tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)", url_lower):  # добавлен vt.tiktok.com
         return Platform.TIKTOK
     if re.search(r"(instagram\.com|instagr\.am)", url_lower):
         return Platform.INSTAGRAM
@@ -41,15 +42,15 @@ def build_yt_dlp_cmd(platform: Platform, url: str, output_template: str) -> list
         "-o", output_template,
     ]
 
+    proxy_args = []
+    if hasattr(settings, "ytdlp_proxy") and settings.ytdlp_proxy:
+        proxy_args = ["--proxy", settings.ytdlp_proxy]
+        logger.info(f"Using proxy: {settings.ytdlp_proxy}")
+
     platform_args = {
         Platform.TIKTOK: [
             "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
             "--add-header", "Referer:https://www.tiktok.com/",
-            "--user-agent", (
-                "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) "
-                "AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 "
-                "Mobile/15E148 Safari/604.1"
-            ),
         ],
         Platform.INSTAGRAM: [
             "-f", "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
@@ -75,10 +76,10 @@ def build_yt_dlp_cmd(platform: Platform, url: str, output_template: str) -> list
         ],
     }
 
-    return base_cmd + platform_args[platform] + [url]
+    return base_cmd + proxy_args + platform_args[platform] + [url]
 
 
-def download_youtube_video(url: str, output_dir: str) -> Path: # а нах
+def download_youtube_video(url: str, output_dir: str) -> Path:
     from pytubefix import YouTube
 
     yt = YouTube(url)
@@ -129,8 +130,19 @@ def download_video_from_url(url: str) -> str:
                 logger.warning(f"yt-dlp stderr: {result.stderr}")
 
             if result.returncode != 0:
+                stderr = result.stderr or ""
+                if any(phrase in stderr for phrase in [
+                    "Video not available",
+                    "status code 0",
+                    "This video is unavailable",
+                    "Content not available in your area",
+                ]):
+                    raise ValueError(
+                        "Видео недоступно — возможно удалено, приватно "
+                        "или заблокировано в вашем регионе"
+                    )
                 raise RuntimeError(
-                    f"yt-dlp failed with code {result.returncode}:\n{result.stderr}"
+                    f"yt-dlp failed with code {result.returncode}:\n{stderr}"
                 )
 
             downloaded_files = list(Path(tmpdir).glob("video.*"))

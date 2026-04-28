@@ -47,8 +47,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
         PyGLM==2.5.7 \
         pytubefix \
         torch==2.1.2 \
-        yt-dlp && \    
-        fastdtw==0.3.4 && \
+        fastdtw==0.3.4 \
+        yt-dlp && \
     pip install --no-cache-dir mediapipe==0.10.14
 
 COPY ml-service/app/ ./app/
