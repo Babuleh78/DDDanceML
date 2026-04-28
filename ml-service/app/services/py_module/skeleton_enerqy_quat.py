@@ -59,7 +59,7 @@ def compute_energy(
     frames: list,
     w_velocity: float = 0.6,
     w_acceleration: float = 0.4,
-    smooth_window: int = 15,
+    smooth_window: int = 28,
 ) -> tuple[np.ndarray, dict]:
     """Энергия на основе угловой скорости и ускорения кватернионов."""
     N = len(frames)
@@ -110,8 +110,8 @@ def compute_energy(
 def detect_boundaries(
     energy: np.ndarray,
     fps: float,
-    min_segment_sec: float = 1.0,
-    sensitivity: float = 0.08,
+    min_segment_sec: float = 2.0,
+    sensitivity: float = 0.15,
 ) -> list[int]:
     """Детектирует границы сегментов по пикам энергии."""
     min_distance = max(1, int(fps * min_segment_sec))
@@ -124,7 +124,7 @@ def build_segments(
     boundary_frames: list[int],
     fps: float,
     energy: Optional[np.ndarray] = None,
-    min_segment_sec: float = 1.0,
+    min_segment_sec: float = 2.0,
 ) -> list[dict]:
     """Строит список сегментов с ключевыми кадрами."""
     N = len(frames)
