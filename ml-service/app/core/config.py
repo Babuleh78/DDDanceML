@@ -33,9 +33,9 @@ class Settings(BaseSettings):
     blender_character_blend: str = Field(default="character.blend", env="BLENDER_CHARACTER_BLEND")
     
     # === Segmentation ===
-    segmenter_min_seg_sec: float = Field(default=0.8, env="SEGMENTER_MIN_SEG_SEC")
-    segmenter_sensitivity: float = Field(default=0.05, env="SEGMENTER_SENSITIVITY")
-    segmenter_smooth_window: int = Field(default=15, env="SEGMENTER_SMOOTH_WINDOW")
+    segmenter_min_seg_sec: float = Field(default=1.8, env="SEGMENTER_MIN_SEG_SEC")
+    segmenter_sensitivity: float = Field(default=0.15, env="SEGMENTER_SENSITIVITY")
+    segmenter_smooth_window: int = Field(default=29, env="SEGMENTER_SMOOTH_WINDOW")
     
 
     # Кэширование
