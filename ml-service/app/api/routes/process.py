@@ -66,7 +66,7 @@ async def _describe_segment(features: str, segment_idx: int, dance_id: str) -> s
 
     if not gpu_available:
         logger.warning(f"GPU-сервер недоступен ({GPU_SERVER_URL}), возвращаем заглушку")
-        return f"GPU сервер недоступен! Описание сегмента {segment_idx}"
+        return f"GPU сервер недоступен! Описание сегмента {segment_idx+1}"
 
     payload = {
         "model": "local",
@@ -238,24 +238,51 @@ async def get_segment_description(dance_id: str, segment_idx: int):
                     detail=f"Segment {segment_idx} not found. Available: 0-{len(segments)-1}",
                 )
 
-            features = segments[segment_idx].get("features")
-            if not features:
+            segment = segments[segment_idx]
+            
+            # === Проверка кэша: если llm_description уже есть - вернуть его ===
+            cached_description = segment.get("llm_description")
+            if cached_description:  # Если не None и не пусто
+                logger.info(f"Cache hit for segment {segment_idx}: returning cached llm_description")
+                return {
+                    "dance_id": dance_id,
+                    "segment_idx": segment_idx,
+                    "description": cached_description,
+                    "from_cache": True,
+                }
+
+            # === Кэш не попал: запросить у GPU-сервера ===
+            text_features = segment.get("text_dance_features")
+            if not text_features:
                 raise HTTPException(
                     status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail=f"Segment {segment_idx} has no 'features' field",
+                    detail=f"Segment {segment_idx} has no 'text_dance_features' field",
                 )
 
-        description = await _describe_segment(
-            features=features,
-            segment_idx=segment_idx,
-            dance_id=dance_id,
-        )
+            logger.info(f"Cache miss for segment {segment_idx}: requesting from GPU server...")
+            description = await _describe_segment(
+                features=text_features,
+                segment_idx=segment_idx,
+                dance_id=dance_id,
+            )
 
-        return {
-            "dance_id": dance_id,
-            "segment_idx": segment_idx,
-            "description": description,
-        }
+            # === Сохранить описание в segments.json (кэширование) ===
+            segment["llm_description"] = description
+            
+            # Обновить segments.json в S3
+            segments_path = Path(local_path)
+            with open(segments_path, "w", encoding="utf-8") as f:
+                json.dump(segments_data, f, ensure_ascii=False, indent=2)
+            
+            logger.info(f"Uploading updated segments.json with cached description for segment {segment_idx}")
+            s3_client.upload_file(str(segments_path), segments_key)
+
+            return {
+                "dance_id": dance_id,
+                "segment_idx": segment_idx,
+                "description": description,
+                "from_cache": False,
+            }
 
     except HTTPException:
         raise
@@ -272,20 +299,22 @@ async def get_segment_description(dance_id: str, segment_idx: int):
         )
     
 
- 
-
- 
- 
-@router.post("/dance_compare", response_model=None)
+@router.post("/dance_compare", response_model=DanceCompareResponse)
 async def dance_compare(req: DanceCompareRequest):
     task = compare_dance_task.delay(
-        video_key=req.video_key,
+        original_video_s3_path=req.original_video_s3_path,
+        user_video_s3_path=req.user_video_s3_path,
+        user_id=req.user_id,
         dance_id=req.dance_id,
-        segment_idx=req.segment_idx,
     )
     return {
-        "task_id":     task.id,
-        "dance_id":    req.dance_id,
-        "segment_idx": req.segment_idx,
-        "status":      "queued",
+        "task_id": task.id,
+        "dance_id": req.dance_id,
+        "user_id": req.user_id,
+        "status": "queued",
     }
+
+
+@router.get("/health")
+async def health_check():
+    return {"status": "ok"}

@@ -1,67 +1,48 @@
 # app/schemas/compare.py
 from pydantic import BaseModel, Field
 from typing import Optional
-import uuid
 
 
 class DanceCompareRequest(BaseModel):
-    """
-    video_key   — S3-ключ видео пользователя (уже загружен)
-    dance_id    — ID оригинального танца (откуда берём segments.json)
-    segment_idx — индекс сегмента для сравнения; -1 = всё видео целиком
-    """
-    video_key: str
-    dance_id: str
-    segment_idx: int = Field(default=-1, ge=-1)
+    original_video_s3_path: str = Field(..., description="Путь в S3 к оригинальному видео (результат/{dance_id}/video.mp4)")
+    user_video_s3_path: str = Field(..., description="Путь в S3 к видео пользователя")
+    user_id: str = Field(..., description="ID пользователя")
+    dance_id: str = Field(..., description="ID оригинального танца")
 
     class Config:
         json_schema_extra = {
             "example": {
-                "video_key": "uploads/user_attempt.mp4",
+                "original_video_s3_path": "results/abc-123/video.mp4",
+                "user_video_s3_path": "uploads/user_attempt.mp4",
+                "user_id": "user-456",
                 "dance_id": "abc-123",
-                "segment_idx": -1,
             }
         }
 
 
-class VelocityMetrics(BaseModel):
-    mean: float
-    max: float
-    std: float
-
-
-class ROMMetrics(BaseModel):
-    max_distance: float
-    mean_distance: float
-
-
-class JointAngleMetrics(BaseModel):
-    mean_deg: float
-    range_deg: float
-
-
-class SegmentNumericMetrics(BaseModel):
-    velocity: VelocityMetrics
-    smoothness: float
-    rom: ROMMetrics
-    tempo_bpm: float
-    symmetry_ratio: float     
-    joint_angles: dict[str, JointAngleMetrics]  
-
-class SegmentCompareDetail(BaseModel):
-    segment_idx: int
-    dtw_scores: dict[str, float]
-    velocity_diff: float
-    smoothness_diff: float
-    rom_diff: float
-    tempo_diff: float
-    symmetry_diff: float
-    joint_angles_diff: dict[str, float]
-    segment_score: float
-
 class DanceCompareResponse(BaseModel):
+    task_id: str = Field(..., description="ID задачи Celery")
     dance_id: str
-    segment_idx: int       
-    overall_score: float   
-    segments: list[SegmentCompareDetail]
-    weakest_metrics: list[str]
+    user_id: str
+    status: str = Field(default="queued", description="queued, processing, done, failed")
+    
+    class Config:
+        json_schema_extra = {
+            "example": {
+                "task_id": "abc-def-123",
+                "dance_id": "abc-123",
+                "user_id": "user-456",
+                "status": "queued",
+            }
+        }
+
+
+class ComparisonScoreResult(BaseModel):
+    dance_id: str
+    user_id: str
+    comparison_score: float = Field(..., ge=0, le=100, description="Score 0-100")
+    dtw_distance: float = Field(..., description="Нормализованное расстояние DTW")
+    original_video_s3: str = Field(..., description="Путь к оригинальному видео в S3")
+    user_video_s3: str = Field(..., description="Путь к видео пользователя в S3")
+    user_glb_s3: str = Field(..., description="Путь к 3D моделе пользователя в S3")
+    processed_at: str = Field(..., description="ISO timestamp обработки")

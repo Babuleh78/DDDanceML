@@ -1,17 +1,8 @@
-"""
-Генерация описаний движений на основе расширенных метрик.
-Использует скорость, jerk, ROM, направление, углы суставов, темп, симметрию.
-"""
-
 from typing import Dict, List
 import logging
 
 logger = logging.getLogger(__name__)
 
-
-# ─────────────────────────────────────────────
-# Классификаторы
-# ─────────────────────────────────────────────
 
 def _classify_velocity(mean: float) -> str:
     if mean < 0.05:  return "неподвижна"
@@ -23,22 +14,11 @@ def _classify_velocity(mean: float) -> str:
 
 
 def _classify_smoothness(smoothness: float, jerk_mean: float = None) -> str:
-    """
-    Классифицирует плавность движения.
-    Если передан jerk_mean (нормализованный jerk, NJ), использует его —
-    он более информативен чем производная smoothness.
-    Пороги откалиброваны по реальным данным MediaPipe:
-      NJ < 80   → плавно         (contemporary, лирика)
-      NJ < 200  → относит. плавно (джаз, поп)
-      NJ < 450  → с рывками      (хип-хоп, waacking)
-      NJ >= 450 → резко           (локинг, брейк)
-    """
     if jerk_mean is not None:
         if jerk_mean < 100: return "плавно"
         if jerk_mean < 260: return "относительно плавно"
         if jerk_mean < 430: return "с небольшими рывками"
         return "резко и отрывисто"
-    # fallback по smoothness если jerk_mean не передан
     if smoothness > 0.85: return "плавно"
     if smoothness > 0.65: return "относительно плавно"
     if smoothness > 0.45: return "с небольшими рывками"
@@ -75,10 +55,6 @@ def generate_body_part_description(
     part_display_name: str,
     metrics: Dict,
 ) -> str:
-    """
-    Генерирует читаемое описание для одной части тела.
-    Включает скорость, плавность, амплитуду и направление.
-    """
     if not metrics or "error" in metrics:
         return ""
 
@@ -116,15 +92,10 @@ def generate_body_part_description(
 
 
 def generate_joint_angles_description(joint_angles: Dict) -> str:
-    """
-    Формирует блок описания углов суставов.
-    Фокусируется на суставах с большим диапазоном изменения угла (>10°).
-    """
     if not joint_angles:
         return ""
 
     lines = []
-    # Фильтруем суставы с заметным изменением угла
     active_joints = {
         k: v for k, v in joint_angles.items()
         if v.get("range_deg", 0) > 10.0
@@ -162,7 +133,6 @@ def generate_joint_angles_description(joint_angles: Dict) -> str:
 
 
 def generate_tempo_description(tempo: Dict) -> str:
-    """Формирует строку описания темпа и ритма с частотой в Герцах."""
     if not tempo:
         return ""
 
@@ -171,7 +141,6 @@ def generate_tempo_description(tempo: Dict) -> str:
     regularity = tempo.get("rhythm_regularity", 0.0)
     tempo_label = _classify_tempo(bpm)
 
-    # Вычисляем частоту в Герцах (BPM / 60)
     hz = round(bpm / 60.0, 1) if bpm > 0 else 0.0
 
     parts = [f"Темп: {tempo_label}"]
@@ -191,7 +160,6 @@ def generate_tempo_description(tempo: Dict) -> str:
 
 
 def generate_symmetry_description(symmetry: Dict) -> str:
-    """Формирует блок описания симметрии движения."""
     if not symmetry:
         return ""
 
@@ -227,23 +195,11 @@ def build_segment_description(
     segment_index: int,
     segment_duration_sec: float,
 ) -> Dict:
-    """
-    Собирает полное структурированное описание сегмента.
-
-    Args:
-        analysis: результат analyze_segment_body_parts()
-        segment_index: номер сегмента
-        segment_duration_sec: длительность в секундах
-
-    Returns:
-        Dict с полным описанием
-    """
     body_parts_analysis = analysis.get("body_parts", {})
     joint_angles        = analysis.get("joint_angles", {})
     tempo               = analysis.get("tempo", {})
     symmetry            = analysis.get("symmetry", {})
 
-    # Части тела с активным движением
     active_parts = []
     part_descriptions = []
 
@@ -264,7 +220,6 @@ def build_segment_description(
         if desc:
             part_descriptions.append(desc)
 
-    # Общее описание активности
     if not active_parts:
         overall = "Статичная поза — минимальное движение"
     elif len(active_parts) == 1:
@@ -276,7 +231,6 @@ def build_segment_description(
     else:
         overall = f"Активное движение всего тела ({len(active_parts)} сегментов)"
 
-    # Блоки описания
     blocks = []
     if part_descriptions:
         blocks.append("Части тела:\n" + "\n".join(f"  • {d}" for d in part_descriptions))
@@ -307,7 +261,6 @@ def build_segment_description(
             f"{int(segment_duration_sec // 60)}:"
             f"{int(segment_duration_sec % 60):02d}"
         ),
-        # Сырые данные для LLM или дальнейшей обработки
         "raw": {
             "joint_angles": joint_angles,
             "tempo":        tempo,

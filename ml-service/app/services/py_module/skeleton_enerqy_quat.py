@@ -1,7 +1,3 @@
-"""
-Энергетическая сегментация на основе кватернионов (Mixamo format).
-Совместимо с форматом: frame = {"time": float, "bones": [{"name", "rotation", "position"}]}
-"""
 import numpy as np
 from scipy.signal import find_peaks, savgol_filter
 from typing import Optional, List, Dict

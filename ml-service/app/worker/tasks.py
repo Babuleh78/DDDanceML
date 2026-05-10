@@ -39,10 +39,22 @@ def process_video_url_task(self, url: str, dance_id: str, enable_labeling: bool 
     default_retry_delay=10,
     queue="video_processing",
 )
-def compare_dance_task(self, video_key: str, dance_id: str, segment_idx: int = -1):
-    from app.services.dance_compare import compare_dance
+def compare_dance_task(
+    self,
+    original_video_s3_path: str,
+    user_video_s3_path: str,
+    user_id: str,
+    dance_id: str,
+):
+    from app.services.compare import compare_dance
+
     try:
-        return compare_dance(video_key, dance_id, segment_idx)
+        return compare_dance(
+            original_video_s3_path=original_video_s3_path,
+            user_video_s3_path=user_video_s3_path,
+            user_id=user_id,
+            dance_id=dance_id,
+        )
     except Exception as exc:
         raise self.retry(exc=exc)
  

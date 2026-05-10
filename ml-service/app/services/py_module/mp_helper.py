@@ -7,6 +7,7 @@ import os
 from .mixamo import Mixamo
 from .model_node import ModelNode, json_to_glm_vec, json_to_glm_quat, calc_transform
 from .shashura import ShashuraFilter
+from scipy.signal import savgol_filter as _savgol
 import copy
 import numpy as np
 
@@ -15,22 +16,21 @@ _EXTREMITY_WINDOW = 15
  
 
 _EXTREMITY_INDICES = {
-    8,   # LeftHand
-    9,   # LeftHandThumb1
-    10,  # LeftHandIndex1
-    11,  # LeftHandPinky1
-    14,  # RightHand
-    15,  # RightHandThumb1
-    16,  # RightHandIndex1
-    17,  # RightHandPinky1
-    20,  # LeftFoot
-    21,  # LeftToeBase
-    24,  # RightFoot
-    25,  # RightToeBase
+    8,
+    9,
+    10,
+    11,
+    14,
+    15,
+    16,
+    17,
+    20,
+    21,
+    24,
+    25,
 }
  
 
-# Импортируем отладчик
 try:
     from .mediapipe_debugger import log_raw_pose, log_glm_list, save_debug_data
 except ImportError:
@@ -85,7 +85,7 @@ def draw_list2(fig, vec_list=[], group_lists=[[]], azim=10, range=1.0):
 
 
 def draw_list3(fig, vec_list=[],vec2_list=[], group_lists=[[]], azim=10, range=1.0):
-    ax1 =  matplotlib.pyplot.axes(projection='3d') #fig.add_subplot(1, 2, 1, projection='3d') #matplotlib.pyplot.axes(projection='3d')
+    ax1 =  matplotlib.pyplot.axes(projection='3d')
     set_axes(ax1, elev=10, azim=azim, xrange=range, yrange=range, zrange=range)
     dots = get_dot(vec_list, group_lists)
     for dot in dots:
@@ -95,7 +95,6 @@ def draw_list3(fig, vec_list=[],vec2_list=[], group_lists=[[]], azim=10, range=1
     for dot in dots2:
         ax1.plot(dot['x'], dot['y'], dot['z'], marker='+', color='r')
 
-    # plt.show()
     fig.canvas.draw()
 
 
@@ -163,8 +162,6 @@ def get_name_idx_map():
     return name_idx_map
 
 
-
-# [Mixamo name, idx, parent_idx, mediapipe name]
 def get_mixamo_names():
     return [
         ['Hips', 0, -1],  
@@ -216,9 +213,6 @@ def get_mixamo_name_mediapipe_name_map():
     return mm_name_mp_name_map
 
 def init_bindpose(bindpose_json, model_json):
-    '''
-    bindpose_json: output
-    '''
     name = model_json["name"]
     position = json_to_glm_vec(model_json["position"])
     rotate = json_to_glm_quat(model_json["rotation"])
@@ -292,7 +286,6 @@ def mediapipe_to_mixamo(mp_manager,
     return [True, anim_result_json]
 
 def glm_list_to_numpy(glm_list):
-    """Конвертирует список glm.vec3 (с None) в numpy-массив (26, 3)."""
     result = np.zeros((len(glm_list), 3), dtype=np.float32)
     for i, v in enumerate(glm_list):
         if v is not None:
@@ -301,7 +294,6 @@ def glm_list_to_numpy(glm_list):
 
 
 def numpy_to_glm_list(array, original_glm_list):
-    """Конвертирует numpy-массив обратно в список glm.vec3, сохраняя None."""
     result = list(original_glm_list)
     for i, v in enumerate(original_glm_list):
         if v is not None:
@@ -316,7 +308,6 @@ def mediapipe_to_mixamo2(mp_manager,
                          mixamo_bindingpose_json,
                          mixamo_bindingpose_root_node,
                          time_factor):
-    # init dicts
     mp_name_idx_map = get_name_idx_map()
     mm_mp_map = get_mixamo_name_mediapipe_name_map()
     mm_name_idx_map = get_mixamo_name_idx_map()
@@ -327,7 +318,6 @@ def mediapipe_to_mixamo2(mp_manager,
         mm_idx = mm_name_idx_map[mm_name]
         mp_idx_mm_idx_map[mp_idx] = mm_idx
 
-    # for hips move var
     _, model_right_up_leg = find_model_json(mixamo_bindingpose_json["node"], Mixamo.RightUpLeg.name)
     __, model_right_leg = find_model_json(mixamo_bindingpose_json["node"], Mixamo.RightLeg.name)
 
@@ -344,8 +334,10 @@ def mediapipe_to_mixamo2(mp_manager,
 
     hip_world_origin = None
 
-    width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
-    height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    original_width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+    original_height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+    width = original_width
+    height = original_height
 
     frame_num = -1
     matplotlib.pyplot.ion()
@@ -355,7 +347,6 @@ def mediapipe_to_mixamo2(mp_manager,
         fig = matplotlib.pyplot.figure()
         matplotlib.pyplot.show()
 
-    # init mediapipe
     try:
         max_frame_num = mp_manager.max_frame_num
         is_show_result = mp_manager.is_show_result
@@ -375,8 +366,6 @@ def mediapipe_to_mixamo2(mp_manager,
             cap_image = cv2.resize(
                 cap_image, (int(width1 * (640 / height1)), 640))
             height2, width2, _ = cap_image.shape
-            height = height2
-            width = width2
             cap_image, glm_list, visibility_list, hip2d_left, hip2d_right, leg2d = detect_pose_to_glm_pose(
                 mp_manager, cap_image, mp_idx_mm_idx_map)
             
@@ -424,15 +413,17 @@ def mediapipe_to_mixamo2(mp_manager,
                     matplotlib.pyplot.clf()
                     draw_list3(fig,rv, glm_list, rg)
                 if is_hips_move:
-                    hip2d_left.x *= width
-                    hip2d_left.y *= height
-                    hip2d_left.z *= width
-                    hip2d_right.x *= width
-                    hip2d_right.y *= height
-                    hip2d_right.z *= width
-                    leg2d.x *=width
-                    leg2d.y *=height
-                    leg2d.z *=width
+                    scale_factor_x = original_width / width2
+                    scale_factor_y = original_height / height2
+                    hip2d_left.x *= original_width * scale_factor_x
+                    hip2d_left.y *= original_height * scale_factor_y
+                    hip2d_left.z *= original_width * scale_factor_x
+                    hip2d_right.x *= original_width * scale_factor_x
+                    hip2d_right.y *= original_height * scale_factor_y
+                    hip2d_right.z *= original_width * scale_factor_x
+                    leg2d.x *= original_width * scale_factor_x
+                    leg2d.y *= original_height * scale_factor_y
+                    leg2d.z *= original_width * scale_factor_x
 
                     if origin == None:
                         origin = avg_vec3(hip2d_left, hip2d_right)
@@ -475,7 +466,9 @@ def mediapipe_to_mixamo2(mp_manager,
                     hips_bone[1].x - origin.x,
                     hips_bone[1].y - origin.y,
                     hips_bone[1].z - origin.z
-                )) if len(hips_bone) < 3 else hips_bone[2]
+                )) if len(hips_bone) < 3 else hips_bone[2],
+                video_width=original_width,
+                video_height=original_height
             )
         if anim_result_json["frames"][0]["time"] != 0.0:
             tmp_json = copy.deepcopy(anim_result_json["frames"][0])
@@ -500,20 +493,16 @@ def mediapipe_to_mixamo2(mp_manager,
 
 
 def detect_pose_to_glm_pose(mp_manager, image, mp_idx_mm_idx_map):
-    # Create a copy of the input image.
     output_image = image.copy()
 
     image.flags.writeable = False
 
-    # Convert the image from BGR into RGB format.
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
-    # Perform the Pose Detection.
     results = mp_manager.get_pose().process(image_rgb)
 
     image.flags.writeable = True
 
-    # Initialize a list to store the detected landmarks.
     glm_list = [None]*26
     visibility_list = [None]*26
     hip2d_left, hip2d_right = glm.vec3(0.0, 0.0, 0.0), glm.vec3(0.0, 0.0, 0.0)
@@ -569,7 +558,6 @@ def detect_pose_to_glm_pose(mp_manager, image, mp_idx_mm_idx_map):
                 landmark[mp_idx].x, -landmark[mp_idx].y, -landmark[mp_idx].z)
             visibility_list[mm_idx] = landmark[mp_idx].visibility
 
-    # 2d landmarks
     leg2d = None
     if results.pose_landmarks:
         landmark = results.pose_landmarks.landmark
@@ -596,7 +584,8 @@ def avg_vec3(v1, v2):
 
 
 def set_hips_position(hips_bone_json, origin_hips, current_hips,
-                      factor, hips_scale_origin=None, current_scale=None):
+                      factor, hips_scale_origin=None, current_scale=None,
+                      video_width=None, video_height=None):
     x = (current_hips.x - origin_hips.x) * factor
     y = (current_hips.y - origin_hips.y) * factor
  
@@ -604,15 +593,20 @@ def set_hips_position(hips_bone_json, origin_hips, current_hips,
             and current_scale is not None
             and hips_scale_origin > 1e-6
             and current_scale > 1e-6):
- 
         scale_ratio = (current_scale / hips_scale_origin) - 1.0
         Z_SCALE = factor * hips_scale_origin * 0.5 
         z_raw = scale_ratio * Z_SCALE
-        Z_MAX = factor * 1.5  
-        z = float(Z_MAX * np.tanh(z_raw / (Z_MAX + 1e-9)))
+        Z_MAX = 3.0 * factor
+        z = float(np.clip(z_raw, -Z_MAX, Z_MAX))
     else:
         z = 0.0 
  
+    if video_width is not None and video_height is not None:
+        x_max = video_width * 0.4
+        y_max = video_height * 0.3
+        x = np.clip(x, -x_max, x_max)
+        y = np.clip(y, -y_max, y_max)
+    
     hips_bone_json["x"] = x
     hips_bone_json["y"] = -y
     hips_bone_json["z"] = z
