@@ -32,8 +32,8 @@ DESCRIPTION_SYSTEM_PROMPT = (
 
 def _contains_non_cyrillic_text(text: str) -> bool:
     import re
-    non_cyrillic = re.findall(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]', text)
-    return len(non_cyrillic) > 0
+    non_cyrillic_pattern = re.compile(r'[^а-яА-ЯёЁ\s\.\,\!\?\;\:\-\(\)\"\'\`]')
+    return bool(non_cyrillic_pattern.search(text))
 
 async def _check_gpu_server() -> bool:
     """Проверяет доступность GPU-сервера и готовность модели."""
