@@ -4,12 +4,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile.api
-    
     env_file:
       - .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - GPU_SERVER_URL=http://185.20.47.170:44003
     volumes:
       - ./ml-service/app:/app/app:ro
       - ./ml-service/.env:/app/.env:ro
@@ -39,16 +35,13 @@ services:
       -Q video_processing
     env_file:
       - .env
-    environment:
-      - REDIS_URL=redis://redis:6379/0
-      - GPU_SERVER_URL=http://185.20.47.170:44003
     volumes:
       - ./ml-service/app:/app/app:ro
       - ./ml-service/.env:/app/.env:ro
       - ./ml-service/results:/app/results
       - ./secrets:/secrets
-      - hf_cache:/root/.cache/huggingface 
-    restart: unless-stopped 
+      - hf_cache:/root/.cache/huggingface
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "celery", "-A", "app.worker.celery_app", "inspect", "ping", "-d", "celery@$$HOSTNAME"]
       interval: 30s
@@ -69,7 +62,6 @@ services:
 
   redis:
     image: redis:7-alpine
-   
     volumes:
       - redis_data:/data
     command: >
