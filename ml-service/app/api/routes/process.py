@@ -26,8 +26,14 @@ INFERENCE_TIMEOUT = float(os.getenv("INFERENCE_TIMEOUT", "300.0"))
 DESCRIPTION_SYSTEM_PROMPT = (
     "Ты спортивный комментатор танца. Коротко и энергично описываешь что происходит. "
     "Не перечисляй части тела — говори о характере и энергии движения. "
-    "Два предложения максимум. Никаких цифр и технических терминов. Только русский язык."
+    "Два предложения максимум. Никаких цифр и технических терминов. "
+    "ОТВЕЧАЙ ТОЛЬКО НА РУССКОМ ЯЗЫКЕ. Никакого китайского, английского или других языков."
 )
+
+def _contains_non_cyrillic_text(text: str) -> bool:
+    import re
+    non_cyrillic = re.findall(r'[\u4e00-\u9fff\u3040-\u309f\u30a0-\u30ff]', text)
+    return len(non_cyrillic) > 0
 
 async def _check_gpu_server() -> bool:
     """Проверяет доступность GPU-сервера и готовность модели."""
@@ -62,127 +68,102 @@ async def _describe_segment(features: str, segment_idx: int, dance_id: str) -> s
         logger.warning(f"GPU-сервер недоступен ({GPU_SERVER_URL}), возвращаем заглушку")
         return f"GPU сервер недоступен! Описание сегмента {segment_idx+1}"
 
-    temperature = round(random.uniform(0.3, 0.6), 2)
-    logger.info(f"Используем temperature={temperature}")
+    max_attempts = 3
 
-    payload = {
-        "model": "local",
-        "stream": False,
-        "temperature": temperature,
-        "top_p": 0.9,
-        "max_tokens": 120,
-        "messages": [
-            {"role": "system", "content": DESCRIPTION_SYSTEM_PROMPT},
-            {"role": "user", "content": f"Характеристики сегмента:\n{features}\n\nКоротко — что за движение?"},
-        ],
-    }
+    for attempt in range(1, max_attempts + 1):
+        temperature = round(random.uniform(0.3, 0.6), 2)
+        logger.info(f"Попытка {attempt}/{max_attempts}, temperature={temperature}")
 
-    logger.info(f"Запрос к GPU-серверу ({GPU_SERVER_URL}), dance_id={dance_id}, segment={segment_idx}")
+        payload = {
+            "model": "local",
+            "stream": False,
+            "temperature": temperature,
+            "top_p": 0.9,
+            "max_tokens": 120,
+            "messages": [
+                {"role": "system", "content": DESCRIPTION_SYSTEM_PROMPT},
+                {"role": "user", "content": f"Характеристики сегмента:\n{features}\n\nКоротко — что за движение?"},
+            ],
+        }
 
-    try:
-        async with httpx.AsyncClient(timeout=INFERENCE_TIMEOUT) as client:
-            logger.debug(f"→ Отправляю POST {GPU_SERVER_URL}/api/chat")
-            response = await client.post(f"{GPU_SERVER_URL}/api/chat", json=payload)
-            
-            logger.debug(f"← Response status: {response.status_code}")
-            logger.debug(f"← Response headers: {dict(response.headers)}")
-            logger.debug(f"← Response raw (first 300 chars): {response.text[:300]}")
-            
-            response.raise_for_status()
-            
-            try:
+        try:
+            async with httpx.AsyncClient(timeout=INFERENCE_TIMEOUT) as client:
+                response = await client.post(f"{GPU_SERVER_URL}/api/chat", json=payload)
+                response.raise_for_status()
                 data = response.json()
-            except json.JSONDecodeError as e:
-                logger.error(f"Не удалось распарсить JSON: {e}")
-                logger.error(f"Raw response text: {response.text[:500]}")
-            
-                try:
-                    data = json.loads(response.content.decode('utf-8'))
-                except Exception as e2:
-                    raise HTTPException(
-                        status_code=status.HTTP_502_BAD_GATEWAY,
-                        detail=f"Некорректный ответ от GPU-сервера: {e2}",
-                    )
-            
-            logger.debug(f" Parsed JSON keys: {list(data.keys()) if isinstance(data, dict) else 'N/A'}")
-            
-            content = None
-            
-            if isinstance(data, dict) and "message" in data and isinstance(data["message"], dict):
-                content = data["message"].get("content")
-            
-            elif isinstance(data, dict) and "choices" in data and isinstance(data["choices"], list) and len(data["choices"]) > 0:
-                content = data["choices"][0].get("message", {}).get("content")
-            
-            elif isinstance(data, dict) and "content" in data:
-                content = data["content"]
-            
-            if content is None:
-                logger.error(f"Не удалось извлечь content из ответа: {data}")
-                raise HTTPException(
-                    status_code=status.HTTP_502_BAD_GATEWAY,
-                    detail=f"Неизвестный формат ответа от GPU-сервера: {list(data.keys()) if isinstance(data, dict) else type(data)}",
-                )
-            
-            return str(content).strip()
+                content = data["message"]["content"].strip()
 
-    except httpx.ConnectError:
-        logger.error(f"Не удалось подключиться к GPU-серверу: {GPU_SERVER_URL}")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail=f"GPU-сервер недоступен ({GPU_SERVER_URL})",
-        )
-    
-    except httpx.TimeoutException:
-        logger.error(f"Таймаут GPU-сервера после {INFERENCE_TIMEOUT}с")
-        raise HTTPException(
-            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            detail=f"GPU-сервер не ответил за {INFERENCE_TIMEOUT} секунд",
-        )
-    
-    except httpx.RemoteProtocolError as e:
-        logger.error(f"Протокольная ошибка (сервер закрыл соединение): {e}")
-        logger.error(f"Request payload preview: {json.dumps(payload, ensure_ascii=False)[:200]}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Сервер закрыл соединение во время передачи ответа",
-        )
-    
-    except httpx.ReadError as e:
-        logger.error(f"Ошибка чтения ответа от сервера: {e}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Не удалось прочитать ответ от GPU-сервера",
-        )
-    
-    except httpx.DecodingError as e:
-        logger.error(f"Ошибка декодирования ответа (возможно, кодировка): {e}")
-        logger.error(f"Raw bytes preview: {response.content[:100]}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Не удалось декодировать ответ от GPU-сервера",
-        )
-    
-    except httpx.HTTPStatusError as e:
-        logger.error(f"Ошибка GPU-сервера {e.response.status_code}: {e.response.text[:300]}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Ошибка GPU-сервера: {e.response.text[:300]}",
-        )
-    
-    except KeyError as e:
-        logger.error(f"Неожиданный формат ответа GPU-сервера (KeyError: {e}): {json.dumps(data, ensure_ascii=False)[:300] if 'data' in locals() else 'N/A'}")
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail="Неожиданный формат ответа от GPU-сервера",
-        )
-    
-    except Exception as e:
-        logger.error(f"Непредвиденная ошибка при запросе к GPU-серверу: {type(e).__name__}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Внутренняя ошибка при обращении к GPU-серверу: {str(e)}",
-        )
+                if _contains_non_cyrillic_text(content):
+                    logger.warning(f"Попытка {attempt}: обнаружены нерусские символы, перегенерируем. Ответ: {content[:100]}")
+                    continue
+
+                return content
+
+        except (httpx.ConnectError, httpx.TimeoutException, httpx.HTTPStatusError) as e:
+            logger.error(f"Попытка {attempt}: ошибка запроса: {e}")
+            if attempt == max_attempts:
+                raise HTTPException(status_code=503, detail=str(e))
+            
+            logger.error("Все попытки вернули нерусский текст, возвращаем заглушку")
+            return f"Не удалось получить описание сегмента {segment_idx+1}"
+
+        except httpx.ConnectError:
+            logger.error(f"Не удалось подключиться к GPU-серверу: {GPU_SERVER_URL}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail=f"GPU-сервер недоступен ({GPU_SERVER_URL})",
+            )
+        
+        except httpx.TimeoutException:
+            logger.error(f"Таймаут GPU-сервера после {INFERENCE_TIMEOUT}с")
+            raise HTTPException(
+                status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+                detail=f"GPU-сервер не ответил за {INFERENCE_TIMEOUT} секунд",
+            )
+        
+        except httpx.RemoteProtocolError as e:
+            logger.error(f"Протокольная ошибка (сервер закрыл соединение): {e}")
+            logger.error(f"Request payload preview: {json.dumps(payload, ensure_ascii=False)[:200]}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Сервер закрыл соединение во время передачи ответа",
+            )
+        
+        except httpx.ReadError as e:
+            logger.error(f"Ошибка чтения ответа от сервера: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Не удалось прочитать ответ от GPU-сервера",
+            )
+        
+        except httpx.DecodingError as e:
+            logger.error(f"Ошибка декодирования ответа (возможно, кодировка): {e}")
+            logger.error(f"Raw bytes preview: {response.content[:100]}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Не удалось декодировать ответ от GPU-сервера",
+            )
+        
+        except httpx.HTTPStatusError as e:
+            logger.error(f"Ошибка GPU-сервера {e.response.status_code}: {e.response.text[:300]}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Ошибка GPU-сервера: {e.response.text[:300]}",
+            )
+        
+        except KeyError as e:
+            logger.error(f"Неожиданный формат ответа GPU-сервера (KeyError: {e}): {json.dumps(data, ensure_ascii=False)[:300] if 'data' in locals() else 'N/A'}")
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Неожиданный формат ответа от GPU-сервера",
+            )
+        
+        except Exception as e:
+            logger.error(f"Непредвиденная ошибка при запросе к GPU-серверу: {type(e).__name__}: {e}", exc_info=True)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Внутренняя ошибка при обращении к GPU-серверу: {str(e)}",
+            )
 
 
 @router.post("/process")
