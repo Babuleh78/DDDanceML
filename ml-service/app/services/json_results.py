@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from app.core.s3 import s3_client  # ваш существующий клиент
+from app.core.s3 import s3_client
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -47,12 +47,6 @@ async def save_segments_to_s3(
     bucket: Optional[str] = None,
     s3_key: Optional[str] = None,
 ) -> str:
-    """
-    Загружает результаты в S3.
-    
-    Returns:
-        S3 key сохранённого файла
-    """
     bucket = bucket or settings.S3_RESULTS_BUCKET
     s3_key = s3_key or f"segments/{video_id}.json"
     
@@ -66,10 +60,8 @@ async def save_segments_to_s3(
         "metadata": metadata,
     }
     
-    # Сериализуем в JSON
     json_content = json.dumps(result, ensure_ascii=False).encode("utf-8")
     
-    # Загружаем в S3
     await s3_client.upload_fileobj(
         fileobj=json_content,
         bucket=bucket,

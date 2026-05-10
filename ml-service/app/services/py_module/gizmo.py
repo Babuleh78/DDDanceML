@@ -55,15 +55,10 @@ class Gizmo:
         local_point2.x = 0
         return calc_quat(local_point1, local_point2, is_abs)
 
-    # def calc_roll(self, world_start, world_end):
 
     def get_origin(self):
         return self.r
 
-    # a = local point
-    # a.x * v1 + a.y * v2 + a.z* v3 = world point
-    # [v1, v2, v3] * [a.x, a.y, a.z]T = world point
-    # [a.x, a.y, a.z]T = [v1, v2, v3]^-1 * world point 
     def get_local_pos(self, world_pos):
         b = world_pos - self.r
         A = glm.mat3(self.x, self.y, self.z)

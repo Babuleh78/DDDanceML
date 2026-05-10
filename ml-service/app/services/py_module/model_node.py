@@ -74,7 +74,6 @@ def get_normal(triangle):
     c = triangle[2]
     return glm.normalize(glm.cross(b - a, c - a))
 
-# http://renderdan.blogspot.com/2006/05/rotation-matrix-from-axis-vectors.html
 def generate_matrix(tangent, normal, binormal):
     tan = -glm.vec4(tangent, 0.0)
     binorm = glm.vec4(binormal, 0.0)

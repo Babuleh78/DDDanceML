@@ -1,9 +1,3 @@
-"""
-Анализ движения по частям тела.
-Вычисляет метрики: скорость, амплитуда, ускорение, jerk, углы суставов,
-темп, симметрия, направление движения.
-"""
-
 import numpy as np
 from scipy.signal import savgol_filter, find_peaks
 from typing import Dict, List, Optional, Tuple
@@ -54,7 +48,6 @@ def smooth_signal(signal: np.ndarray, fps: float) -> np.ndarray:
     n = len(signal)
     if n < 5:
         return signal
-    # ~0.1 сек окно, нечётное, минимум 5
     window = max(5, int(fps * 0.1) | 1)
     window = min(window, n if n % 2 == 1 else n - 1)
     try:
@@ -83,10 +76,6 @@ def compute_jerk(acceleration: np.ndarray, fps: float) -> np.ndarray:
 
 
 def compute_range_of_motion(positions: np.ndarray) -> Dict:
-    """
-    Returns:
-        dict с max/mean/min дистанций и per-axis диапазонами
-    """
     min_pos = np.min(positions, axis=0)
     max_pos = np.max(positions, axis=0)
     ranges = max_pos - min_pos           # (num_bones, 3)
@@ -141,7 +130,6 @@ def compute_direction(positions: np.ndarray) -> Dict:
 
 
 def compute_angle_between(v1: np.ndarray, v2: np.ndarray) -> float:
-    """Угол в градусах между двумя векторами."""
     n1 = np.linalg.norm(v1)
     n2 = np.linalg.norm(v2)
     if n1 < 1e-6 or n2 < 1e-6:
@@ -151,7 +139,6 @@ def compute_angle_between(v1: np.ndarray, v2: np.ndarray) -> float:
 
 
 def _smooth_angles(angles: np.ndarray, num_frames: int) -> np.ndarray:
-    """Сглаживает временной ряд углов через Savitzky-Golay."""
     if num_frames >= 5:
         try:
             window = max(5, (num_frames // 4) | 1)
@@ -163,7 +150,6 @@ def _smooth_angles(angles: np.ndarray, num_frames: int) -> np.ndarray:
 
 
 def _angle_trend(angles: np.ndarray) -> str:
-    """Определяет тренд изменения угла."""
     half = len(angles) // 2
     delta = float(angles[half:].mean() - angles[:half].mean())
     if abs(delta) < 3.0:
@@ -186,12 +172,12 @@ def _angle_result(name: str, angles: np.ndarray) -> Dict:
 
 def compute_torso_tilt(all_positions: np.ndarray) -> Dict:
     num_frames = len(all_positions)
-    VERTICAL = np.array([0.0, 1.0, 0.0])  # Y-up после инверсии в mp_helper
+    VERTICAL = np.array([0.0, 1.0, 0.0]) 
 
     angles = np.zeros(num_frames, dtype=np.float32)
     for f in range(num_frames):
-        hips = all_positions[f, 0]   # Hips
-        neck = all_positions[f, 4]   # Neck
+        hips = all_positions[f, 0]  
+        neck = all_positions[f, 4] 
         spine_vec = neck - hips
         angles[f] = compute_angle_between(spine_vec, VERTICAL)
 

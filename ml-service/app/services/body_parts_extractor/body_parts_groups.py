@@ -1,8 +1,3 @@
-"""
-Определение групп частей тела, костей и углов суставов.
-Индексы соответствуют glm_list из mp_helper.py (26 точек Mixamo).
-"""
-
 # Mixamo индексы (из get_mixamo_names() в mp_helper.py):
 # 0=Hips, 1=Spine, 2=Spine1, 3=Spine2, 4=Neck, 5=Head
 # 6=LeftArm, 7=LeftForeArm, 8=LeftHand
