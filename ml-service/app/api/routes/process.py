@@ -98,7 +98,7 @@ async def _describe_segment(features: str, segment_idx: int, dance_id: str) -> s
             "stream": False,
             "temperature": temperature,
             "top_p": 0.9,
-            "max_tokens": 120,
+            "max_tokens": 200,
             "messages": [
                 {"role": "system", "content": DESCRIPTION_SYSTEM_PROMPT},
                 {"role": "user", "content": f"Характеристики сегмента:\n{features}\n\nКоротко — что за движение?"},
