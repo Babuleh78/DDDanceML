@@ -39,7 +39,12 @@ class Settings(BaseSettings):
     
     debug_mode: bool = Field(default=False, env="DEBUG_MODE")
 
-    ytdlp_proxy: Optional[str] = Field(default=None, env="YTDLP_PROXY")
+    ytdlp_proxy: Optional[str] = None
+    proxy_instagram: Optional[str] = None
+    proxy_tiktok: Optional[str] = None
+    proxy_vk: Optional[str] = None
+    
+proxy_youtube: Optional[str] = None
 
 
 settings = Settings()
