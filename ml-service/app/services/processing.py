@@ -11,6 +11,8 @@ import cv2
 import subprocess
 
 
+import numpy as np
+
 from app.core.config import settings
 from app.core import s3 as s3_client
 from app.core.redis_client import get_redis
@@ -22,12 +24,59 @@ from app.services.skeleton_to_segments import (
 from app.services.video_to_json import convert_video_to_json
 from app.services.body_parts_extractor import extract_body_parts_for_segments
 from app.services.dance_features import compute_dance_features
+from app.services.skeleton import save_skeleton_json
 
 CACHE_VERSION = "v2"
 def _video_cache_key(video_hash: str, dance_id: str = None) -> str:
     if dance_id is None:
         return f"video_result:{CACHE_VERSION}:{video_hash}"
     return f"video_result:{CACHE_VERSION}:{video_hash}:{dance_id}"
+
+
+def _clone_cached_assets_for_new_dance(
+    old_dance_id: str, new_dance_id: str, result: dict
+) -> None:
+    pairs: list[tuple[str, str]] = []
+
+    def add(key_old: Optional[str]) -> None:
+        if not key_old:
+            return
+        key_new = key_old.replace(old_dance_id, new_dance_id)
+        if key_new != key_old:
+            pairs.append((key_old, key_new))
+
+    add(result.get("segments_key"))
+    add(result.get("full_glb_key"))
+    for glb in result.get("glb_keys") or []:
+        add(glb)
+    add(result.get("video_path"))
+    add(f"dance-landmarks-cache/{old_dance_id}.json")
+
+    for src, dst in pairs:
+        try:
+            s3_client.copy_object(src, dst)
+        except FileNotFoundError:
+            logger.warning(
+                "cached asset missing under old dance_id, skipping: %s", src
+            )
+        except Exception as e:
+            logger.error(
+                "failed to clone cached asset %s -> %s: %s", src, dst, e
+            )
+            raise
+
+
+def _rewrite_result_paths(result: dict, old_dance_id: str, new_dance_id: str) -> None:
+    for field in ("segments_key", "full_glb_key", "video_path"):
+        value = result.get(field)
+        if isinstance(value, str):
+            result[field] = value.replace(old_dance_id, new_dance_id)
+    glbs = result.get("glb_keys")
+    if isinstance(glbs, list):
+        result["glb_keys"] = [
+            g.replace(old_dance_id, new_dance_id) if isinstance(g, str) else g
+            for g in glbs
+        ]
 
 def _glb_cache_key(json_hash: str, cache_type: str = "full") -> str:
     return f"glb_cache/glb_cache:{CACHE_VERSION}:{cache_type}:{json_hash}"
@@ -90,9 +139,49 @@ def _add_placeholder_descriptions(segments: list) -> list:
 
 
 
-def _simplify_and_enrich_segments(segments: list) -> list:
-    from app.services.dance_compare.dance_compare import extract_numeric_metrics
+def extract_numeric_metrics(segment: dict) -> dict:
+    bpd = segment.get("body_parts_description", {})
+    raw = bpd.get("raw_analysis", {}) if isinstance(bpd, dict) else {}
 
+    vel_means, smoothness_vals, rom_vals = [], [], []
+    for part_data in raw.get("body_parts", {}).values():
+        m = part_data.get("metrics", {})
+        vs = m.get("velocity_stats", {})
+        if vs.get("mean") is not None:
+            vel_means.append(vs["mean"])
+        if m.get("smoothness") is not None:
+            smoothness_vals.append(m["smoothness"])
+        if m.get("rom", {}).get("max_distance") is not None:
+            rom_vals.append(m["rom"]["max_distance"])
+
+    tempo = raw.get("tempo", {})
+    symmetry = raw.get("symmetry", {})
+    sym_ratios = [v.get("velocity_ratio", 1.0) for v in symmetry.values() if isinstance(v, dict)]
+
+    return {
+        "velocity": {
+            "mean": round(float(np.mean(vel_means)) if vel_means else 0.0, 4),
+            "max":  round(float(np.max(vel_means))  if vel_means else 0.0, 4),
+        },
+        "smoothness":     round(float(np.mean(smoothness_vals)) if smoothness_vals else 1.0, 4),
+        "rom": {
+            "max_distance":  round(float(np.max(rom_vals))  if rom_vals else 0.0, 4),
+            "mean_distance": round(float(np.mean(rom_vals)) if rom_vals else 0.0, 4),
+        },
+        "tempo_bpm":      round(float(tempo.get("beats_per_min", 0.0)), 2),
+        "symmetry_ratio": round(float(np.mean(sym_ratios)) if sym_ratios else 1.0, 4),
+        "joint_angles": {
+            jname: {
+                "mean_deg":  jdata.get("mean_deg",  0.0),
+                "range_deg": jdata.get("range_deg", 0.0),
+            }
+            for jname, jdata in raw.get("joint_angles", {}).items()
+            if isinstance(jdata, dict)
+        },
+    }
+
+
+def _simplify_and_enrich_segments(segments: list) -> list:
     result = []
     for seg in segments:
         body_parts_desc = seg.get("body_parts_description", {})
@@ -395,6 +484,7 @@ def process_video(
     dance_id: str,
     enable_labeling: Optional[bool] = None,
     progress_callback: Optional[Callable[[str, dict], None]] = None,
+    uploader_user_id: str = "",
 ) -> dict:
     logger.info(f"process_video START: video_key={video_key}, dance_id={dance_id}")
 
@@ -414,14 +504,40 @@ def process_video(
         if not Path(video_path).exists():
             raise RuntimeError(f"Failed to download video: {video_path}")
 
+        # Модерация — до любых дорогостоящих операций
+        from app.services.moderation import moderate_video_file
+        mod_reason = moderate_video_file(
+            video_path=video_path,
+            dance_id=dance_id,
+            uploader_user_id=uploader_user_id,
+            video_s3_url=video_key,
+        )
+        if mod_reason is not None:
+            logger.info("process_video STOPPED by moderation: dance_id=%s reason=%s", dance_id, mod_reason)
+            return {"status": "moderation_pending", "reason": mod_reason}
+
         video_hash = _video_hash(video_path)
         redis = get_redis()
 
         cached = redis.get(_video_cache_key(video_hash))
         if cached:
             result = json.loads(cached)
-            result["dance_id"] = dance_id
-            return result
+            old_dance_id = result.get("dance_id")
+            if not old_dance_id or old_dance_id == dance_id:
+                result["dance_id"] = dance_id
+                return result
+
+            critical = [result.get("segments_key"), result.get("full_glb_key")]
+            if all(k and s3_client.file_exists(k) for k in critical):
+                _clone_cached_assets_for_new_dance(old_dance_id, dance_id, result)
+                _rewrite_result_paths(result, old_dance_id, dance_id)
+                result["dance_id"] = dance_id
+                return result
+
+            logger.warning(
+                "cache HIT for hash=%s but artifacts under old dance_id=%s missing — full reprocess",
+                video_hash, old_dance_id,
+            )
 
         video_s3_key = f"results/{dance_id}/video.mp4"
         s3_client.upload_file(video_path, video_s3_key)
@@ -430,7 +546,7 @@ def process_video(
         fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
         cap.release()
 
-        # MediaPipe → Mixamo JSON
+        # MediaPipe в Mixamo JSON
         model_path = Path(settings.mixamo_model_path)
         if not model_path.exists():
             raise RuntimeError(f"Mixamo model not found: {settings.mixamo_model_path}")
@@ -467,6 +583,18 @@ def process_video(
         segments = _simplify_and_enrich_segments(segments)
 
         dance_features = compute_dance_features(mixamo_frames, fps)
+
+        # Сохраняем ландмарки в кэш, чтобы compare и keyframe-задача не перезапускали MediaPipe
+        landmarks_cache_key = f"dance-landmarks-cache/{dance_id}.json"
+        try:
+            if not s3_client.file_exists(landmarks_cache_key):
+                landmarks_cache_path = tmpdir / "landmarks_cache.json"
+                with open(landmarks_cache_path, "w", encoding="utf-8") as f:
+                    json.dump({**mixamo_data, "_fps": fps}, f, ensure_ascii=False)
+                s3_client.upload_file(str(landmarks_cache_path), landmarks_cache_key)
+                logger.info(f"Landmarks cache saved: {landmarks_cache_key}")
+        except Exception as e:
+            logger.warning(f"Failed to save landmarks cache: {e}")
 
         segments_key = f"results/{dance_id}/segments.json"
 
@@ -506,6 +634,18 @@ def process_video(
                 "segments_key": segments_key,
                 "num_segments": len(segments),
             })
+
+        # 2D-скелет эталона для фронт-оверлея
+        try:
+            save_skeleton_json(
+                mixamo_data=mixamo_data,
+                fps=float(fps),
+                s3_key=f"results/{dance_id}/skeleton.json",
+                tmpdir=tmpdir,
+                local_name="reference_skeleton.json",
+            )
+        except Exception as e:
+            logger.warning(f"reference skeleton.json upload failed: {e}")
 
         full_animation_result = _render_full_animation(
             mixamo_data=mixamo_data,
@@ -553,7 +693,7 @@ def process_video(
             "num_segments_rendered": len(successful),
             "duration_sec": round(duration_sec, 3),
             "processing_time_sec": round(processing_time, 2),
-            "video_path": video_s3_key, 
+            "video_path": video_s3_key,
 
         }
 

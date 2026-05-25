@@ -39,7 +39,24 @@ class Settings(BaseSettings):
     
     debug_mode: bool = Field(default=False, env="DEBUG_MODE")
 
-    ytdlp_proxy: Optional[str] = Field(default=None, env="YTDLP_PROXY")
+    moderate_power: int = Field(default=5, env="MODERATE_POWER")
+    moderate_yolo_model: str = Field(default="yolov8n.pt", env="MODERATE_YOLO_MODEL")
+    moderate_multi_person_check: bool = Field(default=True, env="MODERATE_MULTI_PERSON_CHECK")
+    moderate_person_min_rel_area: float = Field(default=0.5, env="MODERATE_PERSON_MIN_REL_AREA")
+    telegram_bot_token: Optional[str] = Field(default=None, env="TELEGRAM_BOT_TOKEN")
+    telegram_admin_chat_id: Optional[int] = Field(default=None, env="TELEGRAM_ADMIN_CHAT_ID")
+    go_backend_url: str = Field(default="http://main:5458", env="GO_BACKEND_URL")
+
+    ytdlp_proxy: Optional[str] = None
+    proxy_instagram: Optional[str] = None
+    proxy_tiktok: Optional[str] = None
+    proxy_vk: Optional[str] = None
+    telegram_proxy: Optional[str] = None
+
+    admin_token: Optional[str] = Field(default=None, env="ADMIN_TOKEN")
+
+    ml_internal_token: Optional[str] = Field(default=None, env="ML_INTERNAL_TOKEN")
+    
 
 
 settings = Settings()

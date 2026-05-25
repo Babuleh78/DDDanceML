@@ -3,7 +3,7 @@ services:
   ml-service:
     build:
       context: .
-      dockerfile: Dockerfile.api
+      dockerfile: Dockerfile
     env_file:
       - .env
     volumes:
@@ -18,7 +18,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - ddd-network
+      - ml-internal
     deploy:
       resources:
         limits:
@@ -27,12 +27,12 @@ services:
   worker:
     build:
       context: .
-      dockerfile: Dockerfile.worker
+      dockerfile: Dockerfile
     command: >
       celery -A app.worker.celery_app worker
       --concurrency=2
       --loglevel=info
-      -Q video_processing
+      -Q video_processing,background
     env_file:
       - .env
     volumes:
@@ -54,7 +54,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     networks:
-      - ddd-network
+      - ml-internal
     deploy:
       resources:
         limits:
@@ -62,6 +62,8 @@ services:
 
   redis:
     image: redis:7-alpine
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     volumes:
       - redis_data:/data
     command: >
@@ -69,13 +71,14 @@ services:
       --appendonly yes
       --maxmemory 512mb
       --maxmemory-policy allkeys-lru
+      --requirepass ${REDIS_PASSWORD:?REDIS_PASSWORD must be set}
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" --no-auth-warning ping | grep -q PONG"]
       interval: 5s
       timeout: 3s
       retries: 5
     networks:
-      - ddd-network
+      - ml-internal
     restart: unless-stopped
 
 volumes:
@@ -85,6 +88,6 @@ volumes:
     name: dddance_hf_cache
 
 networks:
-  ddd-network:
-    name: ddd-network
+  ml-internal:
+    name: ml-internal
     external: true

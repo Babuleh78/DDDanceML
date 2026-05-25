@@ -1,4 +1,3 @@
-# app/worker/celery_app.py
 import os
 from celery import Celery
 
@@ -19,4 +18,8 @@ celery_app.conf.update(
     task_default_queue="video_processing",
     task_default_exchange="video_processing",
     task_default_routing_key="video_processing",
+    task_queues={
+        "video_processing": {},
+        "background": {},
+    },
 )

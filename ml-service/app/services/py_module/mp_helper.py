@@ -366,13 +366,14 @@ def mediapipe_to_mixamo2(mp_manager,
             cap_image = cv2.resize(
                 cap_image, (int(width1 * (640 / height1)), 640))
             height2, width2, _ = cap_image.shape
-            cap_image, glm_list, visibility_list, hip2d_left, hip2d_right, leg2d = detect_pose_to_glm_pose(
+            cap_image, glm_list, visibility_list, hip2d_left, hip2d_right, leg2d, lm2d_all = detect_pose_to_glm_pose(
                 mp_manager, cap_image, mp_idx_mm_idx_map)
-            
+
             log_glm_list(frame_num, glm_list, visibility_list)
-            
+
+            time = math.floor(frame_num * time_factor)
+
             if glm_list[0] != None:
-                time =  math.floor(frame_num*time_factor)
                 pose_array = glm_list_to_numpy(glm_list)
                 t = frame_num / mp_manager.fps
                 filtered_array = shashura_filter(
@@ -383,7 +384,8 @@ def mediapipe_to_mixamo2(mp_manager,
                     
                 bones_json = {
                     "time": time,
-                    "bones": []
+                    "bones": [],
+                    "detected": True,
                 }
                 mixamo_bindingpose_root_node.normalize(glm_list)
                 mixamo_bindingpose_root_node.calc_animation(glm_list)
@@ -404,6 +406,8 @@ def mediapipe_to_mixamo2(mp_manager,
                 if glm_list[i] is not None else None
                     for i in range(len(glm_list))
                 ]
+                if lm2d_all is not None:
+                    bones_json["lm2d"] = lm2d_all
                 anim_result_json["frames"].append(bones_json)
                 if is_show_result:
                     rg = []
@@ -438,6 +442,13 @@ def mediapipe_to_mixamo2(mp_manager,
                             avg_vec3(hip2d_left, hip2d_right),
                             hips2d_scale
     ])
+            else:
+                anim_result_json["frames"].append({
+                    "time": time,
+                    "bones": [],
+                    "landmarks": [],
+                    "detected": False,
+                })
 
             key = cv2.waitKey(5)
             if key & 0xFF == 27:
@@ -470,10 +481,10 @@ def mediapipe_to_mixamo2(mp_manager,
                 video_width=original_width,
                 video_height=original_height
             )
-        if anim_result_json["frames"][0]["time"] != 0.0:
-            tmp_json = copy.deepcopy(anim_result_json["frames"][0])
-            tmp_json["time"] = 0.0
-            anim_result_json["frames"].append(tmp_json)
+        if not any(f.get("detected") for f in anim_result_json["frames"]):
+            raise RuntimeError("no detected frames")
+
+        anim_result_json["frames"] = fill_undetected_frames(anim_result_json["frames"])
 
         from app.services.py_module.mp_helper import postprocess_frames
         anim_result_json["frames"] = postprocess_frames(
@@ -559,6 +570,7 @@ def detect_pose_to_glm_pose(mp_manager, image, mp_idx_mm_idx_map):
             visibility_list[mm_idx] = landmark[mp_idx].visibility
 
     leg2d = None
+    lm2d_all = None
     if results.pose_landmarks:
         landmark = results.pose_landmarks.landmark
         hip2d_left.x = landmark[mp_manager.mp_pose.PoseLandmark.LEFT_HIP].x
@@ -567,12 +579,20 @@ def detect_pose_to_glm_pose(mp_manager, image, mp_idx_mm_idx_map):
         hip2d_right = glm.vec3(landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP].x,
                                landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP].y, landmark[mp_manager.mp_pose.PoseLandmark.RIGHT_HIP].z)
         leg2d = glm.vec3(landmark[26].x, landmark[26].y, landmark[26].z)
-        
+        lm2d_all = [
+            {
+                "x": float(landmark[i].x),
+                "y": float(landmark[i].y),
+                "v": float(landmark[i].visibility),
+            }
+            for i in range(len(landmark))
+        ]
+
 
     mp_manager.mp_drawing.draw_landmarks(image=output_image, landmark_list=results.pose_landmarks,
                                          connections=mp_manager.mp_pose.POSE_CONNECTIONS, landmark_drawing_spec=mp_manager.mp_drawing_styles.get_default_pose_landmarks_style())
 
-    return output_image, glm_list, visibility_list, hip2d_left, hip2d_right, leg2d
+    return output_image, glm_list, visibility_list, hip2d_left, hip2d_right, leg2d, lm2d_all
 
 
 def avg_vec3(v1, v2):
@@ -663,6 +683,113 @@ def _smooth_bone(positions: np.ndarray, bone_idx: int, fps: float) -> np.ndarray
     except Exception:
         return positions
     
+
+def _interp_landmarks(a_lms: list, b_lms: list, alpha: float) -> list:
+    if not a_lms and not b_lms:
+        return []
+    if not a_lms:
+        return copy.deepcopy(b_lms)
+    if not b_lms:
+        return copy.deepcopy(a_lms)
+    out = []
+    for i in range(max(len(a_lms), len(b_lms))):
+        ai = a_lms[i] if i < len(a_lms) else None
+        bi = b_lms[i] if i < len(b_lms) else None
+        if ai is None and bi is None:
+            out.append(None); continue
+        if ai is None:
+            out.append(copy.deepcopy(bi)); continue
+        if bi is None:
+            out.append(copy.deepcopy(ai)); continue
+        out.append({
+            "x": ai.get("x", 0.0) * (1 - alpha) + bi.get("x", 0.0) * alpha,
+            "y": ai.get("y", 0.0) * (1 - alpha) + bi.get("y", 0.0) * alpha,
+            "z": ai.get("z", 0.0) * (1 - alpha) + bi.get("z", 0.0) * alpha,
+            "visibility": ai.get("visibility", 0.0) * (1 - alpha) + bi.get("visibility", 0.0) * alpha,
+        })
+    return out
+
+
+def _interp_bones(a_bones: list, b_bones: list, alpha: float) -> list:
+    if not a_bones and not b_bones:
+        return []
+    if not a_bones:
+        return copy.deepcopy(b_bones)
+    if not b_bones:
+        return copy.deepcopy(a_bones)
+    a_by_name = {b.get("name"): b for b in a_bones}
+    out = []
+    for bb in b_bones:
+        name = bb.get("name")
+        ab = a_by_name.get(name)
+        if ab is None:
+            out.append(copy.deepcopy(bb)); continue
+        bone = copy.deepcopy(ab)
+        ap, bp = ab.get("position"), bb.get("position")
+        if isinstance(ap, dict) and isinstance(bp, dict):
+            bone["position"] = {
+                k: ap.get(k, 0.0) * (1 - alpha) + bp.get(k, 0.0) * alpha
+                for k in ("x", "y", "z")
+            }
+        ar, br = ab.get("rotation"), bb.get("rotation")
+        if isinstance(ar, dict) and isinstance(br, dict):
+            bone["rotation"] = {
+                k: ar.get(k, 0.0) * (1 - alpha) + br.get(k, 0.0) * alpha
+                for k in ar.keys() if k in br
+            }
+        out.append(bone)
+    return out
+
+
+def _copy_pose_into(src: dict, dst: dict) -> dict:
+    out = {"time": dst.get("time", 0), "detected": False}
+    out["bones"] = copy.deepcopy(src.get("bones", []))
+    out["landmarks"] = copy.deepcopy(src.get("landmarks", []))
+    if "lm2d" in src:
+        out["lm2d"] = copy.deepcopy(src["lm2d"])
+    return out
+
+
+def _interpolate_pose_into(a: dict, b: dict, alpha: float, dst: dict) -> dict:
+    out = {"time": dst.get("time", 0), "detected": False}
+    out["bones"] = _interp_bones(a.get("bones", []), b.get("bones", []), alpha)
+    out["landmarks"] = _interp_landmarks(a.get("landmarks", []) or [], b.get("landmarks", []) or [], alpha)
+    a_lm2d = a.get("lm2d")
+    b_lm2d = b.get("lm2d")
+    if a_lm2d is not None or b_lm2d is not None:
+        a_adapted = [{**p, "visibility": p.get("v", 0.0)} for p in (a_lm2d or [])]
+        b_adapted = [{**p, "visibility": p.get("v", 0.0)} for p in (b_lm2d or [])]
+        merged = _interp_landmarks(a_adapted, b_adapted, alpha)
+        out["lm2d"] = [
+            {"x": p["x"], "y": p["y"], "v": p.get("visibility", 0.0)}
+            for p in merged if p is not None
+        ]
+    return out
+
+
+def fill_undetected_frames(frames: list) -> list:
+    if not frames:
+        return frames
+    detected_idx = [i for i, f in enumerate(frames) if f.get("detected")]
+    if not detected_idx:
+        return frames
+
+    n = len(frames)
+    first, last = detected_idx[0], detected_idx[-1]
+
+    for i in range(first):
+        frames[i] = _copy_pose_into(frames[first], frames[i])
+    for i in range(last + 1, n):
+        frames[i] = _copy_pose_into(frames[last], frames[i])
+    for k in range(len(detected_idx) - 1):
+        l, r = detected_idx[k], detected_idx[k + 1]
+        if r - l <= 1:
+            continue
+        for i in range(l + 1, r):
+            alpha = (i - l) / (r - l)
+            frames[i] = _interpolate_pose_into(frames[l], frames[r], alpha, frames[i])
+    return frames
+
 
 def postprocess_frames(frames: list, min_visibility: float = 0.5) -> list:
     if not frames:
