@@ -8,6 +8,7 @@ class ProcessRequest(BaseModel):
     video_key: str
     dance_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     enable_labeling: bool = True
+    uploader_user_id: str = ""
     
     class Config:
         json_schema_extra = {
@@ -40,6 +41,7 @@ class ProcessUrlRequest(BaseModel):
     url: str
     dance_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     enable_labeling: bool = True
+    uploader_user_id: str = ""
 
     @field_validator("url")
     def validate_url(cls, v):

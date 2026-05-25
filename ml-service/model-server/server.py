@@ -29,11 +29,10 @@ device    = None
 
 
 def detect_device() -> tuple[str, str, dict]:
-    """Возвращает (device, base_model_name, load_kwargs)"""
     if torch.cuda.is_available():
         gpu = torch.cuda.get_device_properties(0)
         vram_gb = gpu.total_memory / 1e9
-        logger.info(f"✅ GPU: {gpu.name} | VRAM: {vram_gb:.1f} GB")
+        logger.info(f"GPU: {gpu.name} | VRAM: {vram_gb:.1f} GB")
 
         if vram_gb < 12:
             logger.warning("VRAM < 12GB, используем 3B модель на GPU")
@@ -49,7 +48,7 @@ def detect_device() -> tuple[str, str, dict]:
         cpu_count = os.cpu_count()
         ram_gb = os.sysconf("SC_PAGE_SIZE") * os.sysconf("SC_PHYS_PAGES") / 1e9
         logger.warning(
-            f"⚠️  GPU не найден. CPU режим ({cpu_count} cores, {ram_gb:.1f} GB RAM). "
+            f"GPU не найден. CPU режим ({cpu_count} cores, {ram_gb:.1f} GB RAM). "
             f"Модель: {BASE_MODEL_CPU}"
         )
         return "cpu", BASE_MODEL_CPU, {
@@ -64,14 +63,14 @@ async def lifespan(app: FastAPI):
     global model, tokenizer, device
 
     if USE_STUB:
-        logger.warning("⚠️  STUB режим активен — реальная модель не загружается")
+        logger.warning("STUB режим активен — реальная модель не загружается")
         device = "cpu"
         yield
         return
 
     device, base_model_name, load_kwargs = detect_device()
 
-    logger.info(f"📂 Загружаю токенайзер для {base_model_name}...")
+    logger.info(f"Загружаю токенайзер для {base_model_name}...")
     tokenizer = AutoTokenizer.from_pretrained(
         base_model_name,
         trust_remote_code=True,
@@ -79,16 +78,15 @@ async def lifespan(app: FastAPI):
         use_fast=False,
     )
 
-    # Пытаемся прочитать конфиг адаптера для информации
     adapter_base = None
     try:
         peft_config = PeftConfig.from_pretrained(MODEL_PATH)
         adapter_base = peft_config.base_model_name_or_path
-        logger.info(f"📋 Найден адаптер для базовой модели: {adapter_base}")
+        logger.info(f"Найден адаптер для базовой модели: {adapter_base}")
     except Exception as e:
         logger.warning(f"Не удалось прочитать adapter_config: {e}")
 
-    logger.info(f"🔄 Загружаю базовую модель {base_model_name} [{device}]...")
+    logger.info(f"Загружаю базовую модель {base_model_name} [{device}]...")
     base = AutoModelForCausalLM.from_pretrained(
         base_model_name,
         trust_remote_code=True,
@@ -96,24 +94,23 @@ async def lifespan(app: FastAPI):
         **load_kwargs,
     )
 
-    # Применяем адаптер только если есть GPU и адаптер существует
     if device == "cuda" and adapter_base is not None:
         if adapter_base != base_model_name:
             logger.warning(
-                f"⚠️ Адаптер обучен на {adapter_base}, а используется {base_model_name}. "
+                f"Адаптер обучен на {adapter_base}, а используется {base_model_name}. "
                 "Возможна несовместимость размеров."
             )
-        logger.info(f"🔧 Применяю LoRA адаптер из {MODEL_PATH}...")
+        logger.info(f"Применяю LoRA адаптер из {MODEL_PATH}...")
         model = PeftModel.from_pretrained(base, MODEL_PATH)
     else:
         if device == "cpu":
-            logger.info("ℹ️ CPU режим: работаем без адаптера (стандартная модель).")
+            logger.info("CPU режим: работаем без адаптера (стандартная модель).")
         else:
-            logger.info("ℹ️ Адаптер не найден или не используется.")
+            logger.info("Адаптер не найден или не используется.")
         model = base
 
     model.eval()
-    logger.info(f"✅ Модель готова на {device.upper()}!")
+    logger.info(f"Модель готова на {device.upper()}!")
     yield
 
     del model, tokenizer

@@ -23,7 +23,6 @@ JOINT_INDICES = {
     "ankles": [27, 28],
 }
 
-# Основные точки для вычисления (33 точки медиапайп)
 KEY_LANDMARKS = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
 
 
@@ -67,9 +66,7 @@ def _angular_velocity(
     angles = []
     for i in range(1, len(positions)):
         if positions[i - 1] is not None and positions[i] is not None:
-            # Вектор из предыдущего кадра
             v1 = positions[i - 1][1] - positions[i - 1][0]
-            # Вектор из текущего кадра
             v2 = positions[i][1] - positions[i][0]
 
             norm1 = np.linalg.norm(v1)
@@ -84,7 +81,6 @@ def _angular_velocity(
         return 0.0, 0.0
 
     angles = np.array(angles)
-    # Преобразовать в град/сек
     angular_velocities = angles * fps
     return float(np.mean(angular_velocities)), float(np.max(angular_velocities))
 
@@ -248,3 +244,75 @@ def compute_dance_features(frames: list, fps: float) -> dict:
             "jumps": 0,
             "rotations": 0,
         }
+
+
+_DIFFICULTY_RANGES = {
+    "angular_velocity_mean": (0.5, 7.0),
+    "angular_velocity_max": (3.0, 25.0),
+    "moving_limbs_avg_count": (1.0, 5.0),
+    "pose_entropy": (1.5, 5.5),
+    "acro_density": (0.0, 12.0),      
+    "com_dispersion": (0.001, 0.05),
+}
+
+_DIFFICULTY_WEIGHTS = {
+    "speed": 0.22,
+    "coordination": 0.24,
+    "variety": 0.18,
+    "acrobatics": 0.22,
+    "travel": 0.14,
+}
+
+
+def _norm(x: float, lo: float, hi: float) -> float:
+    if hi <= lo:
+        return 0.0
+    return float(np.clip((x - lo) / (hi - lo), 0.0, 1.0))
+
+
+def compute_difficulty(features: dict, duration_sec: float) -> dict:
+    try:
+        avg_v = features.get("angular_velocity_mean", 0.0)
+        limbs = features.get("moving_limbs_avg_count", 0.0)
+        entropy_v = features.get("pose_entropy", 0.0)
+
+        if avg_v == 0.0 and limbs == 0.0 and entropy_v == 0.0:
+            return {"difficulty_score": 50, "difficulty_label": "medium"}
+
+        r = _DIFFICULTY_RANGES
+        speed = (
+            0.7 * _norm(avg_v, *r["angular_velocity_mean"])
+            + 0.3 * _norm(features.get("angular_velocity_max", 0.0), *r["angular_velocity_max"])
+        )
+        coordination = _norm(limbs, *r["moving_limbs_avg_count"])
+        variety = _norm(entropy_v, *r["pose_entropy"])
+
+        minutes = max(duration_sec / 60.0, 1e-6)
+        acro_density = (features.get("jumps", 0) + features.get("rotations", 0)) / minutes
+        acrobatics = _norm(acro_density, *r["acro_density"])
+
+        travel = _norm(features.get("com_dispersion", 0.0), *r["com_dispersion"])
+
+        w = _DIFFICULTY_WEIGHTS
+        d = (
+            w["speed"] * speed
+            + w["coordination"] * coordination
+            + w["variety"] * variety
+            + w["acrobatics"] * acrobatics
+            + w["travel"] * travel
+        )
+        score = max(0, min(100, int(round(100 * d))))
+
+        if score < 34:
+            label = "easy"
+        elif score < 67:
+            label = "medium"
+        else:
+            label = "hard"
+
+        logger.info(f"Difficulty: score={score}, label={label}")
+        return {"difficulty_score": score, "difficulty_label": label}
+
+    except Exception as e:
+        logger.error(f"Error computing difficulty: {e}", exc_info=True)
+        return {"difficulty_score": 50, "difficulty_label": "medium"}

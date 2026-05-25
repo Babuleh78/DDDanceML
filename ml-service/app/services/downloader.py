@@ -1,16 +1,41 @@
 import hashlib
+from typing import Optional
 import tempfile
 import logging
-import re
 import subprocess
 from pathlib import Path
 from enum import Enum
+from urllib.parse import urlparse
 from app.core import s3 as s3_client
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
 MAX_SIZE_BYTES = 35 * 1024 * 1024
+
+YT_DLP_TIMEOUT_SEC = 120
+
+ALLOWED_URL_SCHEMES = {"http", "https"}
+
+GEO_BLOCK_PHRASES = [
+    "Video not available",
+    "status code 0",
+    "This video is unavailable",
+    "Content not available in your area",
+    "not available in your country",
+    "This video is only available",
+    "HTTP Error 403",
+    "Unable to download webpage",
+    "Sorry, this content isn't available",
+]
+
+PLATFORM_PROXY_MAP = {
+    "INSTAGRAM": "proxy_instagram",
+    "TIKTOK": "proxy_tiktok",
+    "VK": "proxy_vk",
+    "YOUTUBE": "proxy_youtube",
+    "UNKNOWN": "ytdlp_proxy",
+}
 
 
 class Platform(Enum):
@@ -21,20 +46,57 @@ class Platform(Enum):
     UNKNOWN = "unknown"
 
 
+_PLATFORM_HOST_SUFFIXES = {
+    Platform.TIKTOK: ("tiktok.com",),
+    Platform.INSTAGRAM: ("instagram.com", "instagr.am"),
+    Platform.YOUTUBE: ("youtube.com", "youtu.be"),
+    Platform.VK: ("vk.com", "vkvideo.ru", "vk.video"),
+}
+
+
+def _host_matches(host: str, suffixes: tuple) -> bool:
+    return any(host == s or host.endswith("." + s) for s in suffixes)
+
+
 def detect_platform(url: str) -> Platform:
-    url_lower = url.lower()
-    if re.search(r"(tiktok\.com|vm\.tiktok\.com|vt\.tiktok\.com)", url_lower):  # добавлен vt.tiktok.com
-        return Platform.TIKTOK
-    if re.search(r"(instagram\.com|instagr\.am)", url_lower):
-        return Platform.INSTAGRAM
-    if re.search(r"(youtube\.com/shorts|youtu\.be|youtube\.com/watch)", url_lower):
-        return Platform.YOUTUBE
-    if re.search(r"(vk\.com|vk\.video|vkvideo\.ru)", url_lower):
-        return Platform.VK
+    try:
+        host = (urlparse(url).hostname or "").lower()
+    except ValueError:
+        return Platform.UNKNOWN
+
+    if not host:
+        return Platform.UNKNOWN
+
+    for platform, suffixes in _PLATFORM_HOST_SUFFIXES.items():
+        if _host_matches(host, suffixes):
+            return platform
+
     return Platform.UNKNOWN
 
 
-def build_yt_dlp_cmd(platform: Platform, url: str, output_template: str) -> list:
+def validate_video_url(url: str, platform: Platform) -> None:
+    parsed = urlparse(url)
+    if parsed.scheme.lower() not in ALLOWED_URL_SCHEMES:
+        raise ValueError(f"Недопустимая схема URL: {parsed.scheme!r}")
+
+    if not parsed.hostname:
+        raise ValueError("URL не содержит хоста")
+
+    if platform == Platform.UNKNOWN:
+        raise ValueError(
+            "Поддерживаются только ссылки на TikTok, Instagram, YouTube и VK"
+        )
+
+
+def get_proxy_for_platform(platform: Platform) -> Optional[str]:
+    setting_key = PLATFORM_PROXY_MAP.get(platform.name, "ytdlp_proxy")
+    proxy = getattr(settings, setting_key, None)
+    if not proxy:
+        proxy = getattr(settings, "ytdlp_proxy", None)
+    return proxy
+
+
+def build_yt_dlp_cmd(platform: Platform, url: str, output_template: str, proxy: Optional[str] = None) -> list:
     base_cmd = [
         "yt-dlp",
         "--merge-output-format", "mp4",
@@ -42,10 +104,7 @@ def build_yt_dlp_cmd(platform: Platform, url: str, output_template: str) -> list
         "-o", output_template,
     ]
 
-    proxy_args = []
-    if hasattr(settings, "ytdlp_proxy") and settings.ytdlp_proxy:
-        proxy_args = ["--proxy", settings.ytdlp_proxy]
-        logger.info(f"Using proxy: {settings.ytdlp_proxy}")
+    proxy_args = ["--proxy", proxy] if proxy else []
 
     platform_args = {
         Platform.TIKTOK: [
@@ -79,6 +138,30 @@ def build_yt_dlp_cmd(platform: Platform, url: str, output_template: str) -> list
     return base_cmd + proxy_args + platform_args[platform] + [url]
 
 
+def run_yt_dlp(platform: Platform, url: str, output_template: str) -> subprocess.CompletedProcess:
+    proxy = get_proxy_for_platform(platform)
+
+    if proxy:
+        cmd = build_yt_dlp_cmd(platform, url, output_template, proxy=proxy)
+        logger.info(f"Running with proxy for {platform.value}")
+        return subprocess.run(cmd, capture_output=True, text=True, timeout=YT_DLP_TIMEOUT_SEC)
+
+    cmd = build_yt_dlp_cmd(platform, url, output_template)
+    logger.info(f"Running without proxy for {platform.value}")
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=YT_DLP_TIMEOUT_SEC)
+
+    if result.returncode != 0:
+        stderr = result.stderr or ""
+        is_geo_block = any(phrase in stderr for phrase in GEO_BLOCK_PHRASES)
+        fallback_proxy = getattr(settings, "ytdlp_proxy", None)
+        if is_geo_block and fallback_proxy:
+            logger.warning("Geo-block detected, retrying with fallback proxy")
+            cmd = build_yt_dlp_cmd(platform, url, output_template, proxy=fallback_proxy)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=YT_DLP_TIMEOUT_SEC)
+
+    return result
+
+
 def download_youtube_video(url: str, output_dir: str) -> Path:
     from pytubefix import YouTube
 
@@ -103,8 +186,13 @@ def download_youtube_video(url: str, output_dir: str) -> Path:
 
 
 def download_video_from_url(url: str) -> str:
+    if url and "://" not in url:
+        url = "https://" + url
+
     platform = detect_platform(url)
     logger.info(f"Detected platform: {platform.value} for URL: {url}")
+
+    validate_video_url(url, platform)
 
     url_hash = hashlib.sha256(url.encode()).hexdigest()[:16]
     s3_key = f"videos/url_{url_hash}.mp4"
@@ -114,15 +202,16 @@ def download_video_from_url(url: str) -> str:
         return s3_key
 
     with tempfile.TemporaryDirectory() as tmpdir:
-
         if platform == Platform.YOUTUBE:
             output_path = download_youtube_video(url, tmpdir)
         else:
             output_template = str(Path(tmpdir) / "video.%(ext)s")
-            cmd = build_yt_dlp_cmd(platform, url, output_template)
-
-            logger.info(f"Running: {' '.join(cmd)}")
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            try:
+                result = run_yt_dlp(platform, url, output_template)
+            except subprocess.TimeoutExpired as e:
+                raise ValueError(
+                    f"Скачивание видео превысило лимит {YT_DLP_TIMEOUT_SEC}с"
+                ) from e
 
             if result.stdout:
                 logger.info(f"yt-dlp stdout: {result.stdout}")
@@ -131,12 +220,7 @@ def download_video_from_url(url: str) -> str:
 
             if result.returncode != 0:
                 stderr = result.stderr or ""
-                if any(phrase in stderr for phrase in [
-                    "Video not available",
-                    "status code 0",
-                    "This video is unavailable",
-                    "Content not available in your area",
-                ]):
+                if any(phrase in stderr for phrase in GEO_BLOCK_PHRASES):
                     raise ValueError(
                         "Видео недоступно — возможно удалено, приватно "
                         "или заблокировано в вашем регионе"
