@@ -37,6 +37,8 @@ RUN pip install --upgrade pip && pip install \
         uvicorn==0.30.6 \
         starlette==0.38.5 \
         sse-starlette==1.8.2 \
+        "prometheus-fastapi-instrumentator>=0.9.1" \
+        "prometheus_client>=0.20.0" \
         "celery[redis]==5.3.6" \
         redis==5.0.1 \
         pydantic==2.8.2 \
@@ -59,6 +61,8 @@ RUN pip install --upgrade pip && pip install \
         torch==2.1.2 \
         transformers==4.41.0 \
         accelerate==0.30.0 \
+        sentence-transformers==2.7.0 \
+        scikit-learn==1.3.2 \
         "ultralytics>=8.0.0" \
         "nudenet>=3.4.0" \
         onnxruntime \

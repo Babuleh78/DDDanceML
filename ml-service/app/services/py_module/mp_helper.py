@@ -497,15 +497,15 @@ def mediapipe_to_mixamo2(mp_manager,
         
         save_debug_data()
 
-    except Exception as e:
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("mediapipe_to_mixamo2 failed")
         if cap.isOpened():
             cap.release()
             cv2.destroyAllWindows()
 
 
 def detect_pose_to_glm_pose(mp_manager, image, mp_idx_mm_idx_map):
-    output_image = image.copy()
-
     image.flags.writeable = False
 
     image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
@@ -513,6 +513,7 @@ def detect_pose_to_glm_pose(mp_manager, image, mp_idx_mm_idx_map):
     results = mp_manager.get_pose().process(image_rgb)
 
     image.flags.writeable = True
+    output_image = image.copy()
 
     glm_list = [None]*26
     visibility_list = [None]*26

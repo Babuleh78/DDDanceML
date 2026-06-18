@@ -102,7 +102,6 @@ class ModelNode:
         self.child = []
         self.gizmo = gizmo
         self.name = ""
-        # bind pose
         self.position = glm.vec3(x=0.0, y=0.0, z=0.0)
         self.scale = glm.vec3(x=1.0, y=1.0, z=1.0)
         self.rotate = glm.quat(w=1.0, x=0.0, y=0.0, z=0.0)
@@ -140,7 +139,6 @@ class ModelNode:
             self.position.z = 0
         self.global_transform = parent_transform * self.get_transform()
 
-        # find child
         childlist = model_json["child"]
         transform_list = [None] * len(childlist)
         transform_list_idx = -1
@@ -167,7 +165,7 @@ class ModelNode:
 
     def normalize_spine(self, parent_node=None, parent_transform=glm.mat4(1.0)):
         if Mixamo.Spine.name in self.name or self.name == Mixamo.LeftArm.name or self.name == Mixamo.RightArm.name or self.name == Mixamo.Neck.name:
-            self.position.z = 0  # local_pos.z
+            self.position.z = 0
 
 
         for child in self.child:

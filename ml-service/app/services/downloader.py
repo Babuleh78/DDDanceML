@@ -89,6 +89,8 @@ def validate_video_url(url: str, platform: Platform) -> None:
 
 
 def get_proxy_for_platform(platform: Platform) -> Optional[str]:
+    if platform == Platform.VK:
+        return None
     setting_key = PLATFORM_PROXY_MAP.get(platform.name, "ytdlp_proxy")
     proxy = getattr(settings, setting_key, None)
     if not proxy:
@@ -99,6 +101,7 @@ def get_proxy_for_platform(platform: Platform) -> Optional[str]:
 def build_yt_dlp_cmd(platform: Platform, url: str, output_template: str, proxy: Optional[str] = None) -> list:
     base_cmd = [
         "yt-dlp",
+        "--max-filesize", f"{MAX_SIZE_BYTES}",
         "--merge-output-format", "mp4",
         "--recode-video", "mp4",
         "-o", output_template,
@@ -154,7 +157,7 @@ def run_yt_dlp(platform: Platform, url: str, output_template: str) -> subprocess
         stderr = result.stderr or ""
         is_geo_block = any(phrase in stderr for phrase in GEO_BLOCK_PHRASES)
         fallback_proxy = getattr(settings, "ytdlp_proxy", None)
-        if is_geo_block and fallback_proxy:
+        if is_geo_block and fallback_proxy and platform != Platform.VK:
             logger.warning("Geo-block detected, retrying with fallback proxy")
             cmd = build_yt_dlp_cmd(platform, url, output_template, proxy=fallback_proxy)
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=YT_DLP_TIMEOUT_SEC)
@@ -179,6 +182,12 @@ def download_youtube_video(url: str, output_dir: str) -> Path:
 
     if not stream:
         raise RuntimeError(f"No suitable stream found for {url}")
+
+    if stream.filesize and stream.filesize > MAX_SIZE_BYTES:
+        raise ValueError(
+            f"Video too large: {stream.filesize / 1024 / 1024:.1f}MB "
+            f"(limit {MAX_SIZE_BYTES / 1024 / 1024:.0f}MB)"
+        )
 
     logger.info(f"Selected stream: {stream}")
     output_path = stream.download(output_path=output_dir, filename="video.mp4")

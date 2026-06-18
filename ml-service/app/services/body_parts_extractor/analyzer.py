@@ -78,8 +78,8 @@ def compute_jerk(acceleration: np.ndarray, fps: float) -> np.ndarray:
 def compute_range_of_motion(positions: np.ndarray) -> Dict:
     min_pos = np.min(positions, axis=0)
     max_pos = np.max(positions, axis=0)
-    ranges = max_pos - min_pos           # (num_bones, 3)
-    distances = np.linalg.norm(ranges, axis=1)  # (num_bones,)
+    ranges = max_pos - min_pos
+    distances = np.linalg.norm(ranges, axis=1)
 
     return {
         "max_distance": float(np.max(distances)),
@@ -98,9 +98,9 @@ def compute_direction(positions: np.ndarray) -> Dict:
         return {"dominant_axis": "none", "direction_label": "нет движения", "displacement_m": 0.0}
 
     mid = len(positions) // 2
-    start_mean = positions[:mid].mean(axis=(0, 1))   # (3,)
-    end_mean   = positions[mid:].mean(axis=(0, 1))   # (3,)
-    delta = end_mean - start_mean                    # (3,)
+    start_mean = positions[:mid].mean(axis=(0, 1))
+    end_mean   = positions[mid:].mean(axis=(0, 1))
+    delta = end_mean - start_mean
 
     displacement = float(np.linalg.norm(delta))
 
@@ -211,7 +211,6 @@ def compute_joint_angles(
     results = {}
 
     for joint_name, joint_def in joint_angles_def.items():
-        # torso_tilt считается своей функцией
         if joint_name == "torso_tilt":
             results["torso_tilt"] = compute_torso_tilt(all_positions)
             continue
@@ -442,7 +441,6 @@ def analyze_segment_body_parts(
     frames = mixamo_frames[start:end]
 
 
-    # 1. Метрики по частям тела
     body_parts_analysis = {}
     for part_name, part_config in body_parts_groups.items():
         try:
@@ -459,7 +457,6 @@ def analyze_segment_body_parts(
                 "error": str(e),
             }
 
-    # 2. Углы суставов
     all_positions = extract_all_positions(frames)
     joint_angles_result = {}
     try:
@@ -467,14 +464,12 @@ def analyze_segment_body_parts(
     except Exception as e:
         logger.error(f"Joint angles error: {e}", exc_info=True)
 
-    # 3. Темп
     tempo_result = {}
     try:
         tempo_result = compute_tempo(frames, fps)
     except Exception as e:
         logger.error(f"Tempo error: {e}", exc_info=True)
 
-    # 4. Симметрия
     symmetry_result = {}
     try:
         symmetry_result = compute_symmetry(frames, symmetry_pairs, body_parts_groups, fps)

@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from app.core.s3 import s3_client
+from app.core import s3 as s3_client
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
