@@ -3,6 +3,8 @@ import json
 import tempfile
 import time
 from datetime import datetime, timezone
+
+from app.domain.comparison import ComparisonResult  # noqa: F401 — domain type, gradual migration
 from pathlib import Path
 from typing import Optional
 
@@ -28,14 +30,14 @@ COMPARE_LANDMARKS = [11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
 LANDMARKS_CACHE_PREFIX = "dance-landmarks-cache"
 
 JOINT_TRIPLETS = [
-    (6, 0, 2),   # L hip-shoulder-elbow
-    (7, 1, 3),   # R hip-shoulder-elbow
-    (0, 2, 4),   # L shoulder-elbow-wrist
-    (1, 3, 5),   # R shoulder-elbow-wrist
-    (0, 6, 8),   # L shoulder-hip-knee
-    (1, 7, 9),   # R shoulder-hip-knee
-    (6, 8, 10),  # L hip-knee-ankle
-    (7, 9, 11),  # R hip-knee-ankle
+    (6, 0, 2),
+    (7, 1, 3),
+    (0, 2, 4),
+    (1, 3, 5),
+    (0, 6, 8),
+    (1, 7, 9),
+    (6, 8, 10),
+    (7, 9, 11),
 ]
 
 HIT_THRESHOLD = 85.0
@@ -83,7 +85,9 @@ def _get_cached_landmarks(
 ) -> dict:
     if s3_client.file_exists(cache_key):
         try:
+            dance_id_hint = Path(cache_key).stem
             logger.info(f"Cache HIT: {cache_key}")
+            logger.info(f"Using cached landmarks for dance {dance_id_hint}, saved ~30s")
             cache_local = Path(tempfile.gettempdir()) / f"cache_{Path(cache_key).name}"
             s3_client.download_file(cache_key, str(cache_local))
             
@@ -279,7 +283,7 @@ def _compute_joint_angles(poses: np.ndarray) -> np.ndarray:
         bc = bc / (np.linalg.norm(bc, axis=1, keepdims=True) + 1e-8)
         cos_a = np.clip(np.sum(ba * bc, axis=1), -1.0, 1.0)
         angles.append(np.arccos(cos_a))
-    return np.column_stack(angles)  # (T, 8)
+    return np.column_stack(angles)
 
 
 def _find_motion_keyframes(poses: np.ndarray, n_keyframes: int = 5) -> list[int]:
@@ -500,9 +504,9 @@ def _analyze_segment(
     user_detected_mask: Optional[np.ndarray] = None,
 ) -> tuple[dict, list]:
     default = {
-        "timing": 50.0, "amplitude": 50.0,
-        "pose_accuracy": 50.0, "score": 50.0,
-        "feedback": "on_time",
+        "timing": 0.0, "amplitude": 0.0,
+        "pose_accuracy": 0.0, "score": 0.0,
+        "feedback": "not_detected",
     }
     n_user_total = len(user_seg_raw)
     if user_detected_mask is None:
@@ -603,8 +607,8 @@ def compare_dance(
 
     logger.info(f"compare_dance START: {original_video_s3_path} vs {user_video_s3_path} (attempt={attempt_key})")
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmpdir = Path(tmpdir)
+    with tempfile.TemporaryDirectory() as _tmpdir:
+        tmpdir = Path(_tmpdir)
 
         try:
             start_time = datetime.now(timezone.utc)
@@ -731,6 +735,7 @@ def compare_dance(
                 ]
 
             segment_results = []
+            all_frame_labels = []
             for seg in original_segments:
                 seg_idx = seg.get("index", 0)
                 orig_start = seg.get("start_frame", 0)
@@ -762,18 +767,19 @@ def compare_dance(
 
                     if orig_seg_poses is None or user_seg_poses is None:
                         raw_scores = {
-                            "timing": 50.0, "amplitude": 50.0,
-                            "pose_accuracy": 50.0, "score": 50.0,
-                            "feedback": "on_time",
+                            "timing": 0.0, "amplitude": 0.0,
+                            "pose_accuracy": 0.0, "score": 0.0,
+                            "feedback": "not_detected",
                         }
                     else:
                         orig_detected_idx = np.where(orig_seg_mask)[0]
                         orig_seg_for_dtw = (orig_seg_poses[orig_detected_idx]
                                             if len(orig_detected_idx) >= 2
                                             else orig_seg_poses)
-                        raw_scores, _ = _analyze_segment(
+                        raw_scores, seg_labels = _analyze_segment(
                             orig_seg_for_dtw, user_seg_poses, fps_user, user_start, user_seg_mask
                         )
+                        all_frame_labels.extend(seg_labels)
 
                     scores = {
                         **raw_scores,
@@ -854,12 +860,14 @@ def compare_dance(
             processed_at = datetime.now(timezone.utc).isoformat()
             tips = _generate_tips(comparison_score, segment_results)
 
+            all_frame_labels.sort(key=lambda x: x["frame_idx"])
             result_data = {
                 "dance_id": dance_id,
                 "user_id": user_id,
                 "comparison_score": comparison_score,
                 "dtw_distance": dtw_distance,
                 "segments": segment_results,
+                "frame_labels": all_frame_labels,
                 "tips": tips,
                 "meta": meta,
                 "original_video_s3": original_video_s3_path,

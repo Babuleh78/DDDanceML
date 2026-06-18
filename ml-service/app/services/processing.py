@@ -497,14 +497,12 @@ def process_video(
         tmpdir = Path(_tmpdir)
         video_path = str(tmpdir / Path(video_key).name)
 
-        # Скачать видео из S3
         s3_client.download_file(video_key, video_path)
         video_path = _ensure_h264(video_path)
 
         if not Path(video_path).exists():
             raise RuntimeError(f"Failed to download video: {video_path}")
 
-        # Модерация — до любых дорогостоящих операций
         from app.services.moderation import moderate_video_file
         mod_reason = moderate_video_file(
             video_path=video_path,
@@ -519,9 +517,22 @@ def process_video(
         video_hash = _video_hash(video_path)
         redis = get_redis()
 
-        cached = redis.get(_video_cache_key(video_hash))
+        try:
+            cached = redis.get(_video_cache_key(video_hash))
+        except Exception:
+            logger.warning("Redis get failed for hash=%s, bypassing cache", video_hash)
+            cached = None
         if cached:
-            result = json.loads(cached)
+            try:
+                result = json.loads(cached)
+            except json.JSONDecodeError:
+                logger.warning("Redis cache corrupt for hash=%s, discarding", video_hash)
+                try:
+                    redis.delete(_video_cache_key(video_hash))
+                except Exception:
+                    pass
+                cached = None
+        if cached:
             old_dance_id = result.get("dance_id")
             if not old_dance_id or old_dance_id == dance_id:
                 result["dance_id"] = dance_id
@@ -546,7 +557,6 @@ def process_video(
         fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
         cap.release()
 
-        # MediaPipe в Mixamo JSON
         model_path = Path(settings.mixamo_model_path)
         if not model_path.exists():
             raise RuntimeError(f"Mixamo model not found: {settings.mixamo_model_path}")
@@ -584,7 +594,6 @@ def process_video(
 
         dance_features = compute_dance_features(mixamo_frames, fps)
 
-        # Сохраняем ландмарки в кэш, чтобы compare и keyframe-задача не перезапускали MediaPipe
         landmarks_cache_key = f"dance-landmarks-cache/{dance_id}.json"
         try:
             if not s3_client.file_exists(landmarks_cache_key):
@@ -635,7 +644,6 @@ def process_video(
                 "num_segments": len(segments),
             })
 
-        # 2D-скелет эталона для фронт-оверлея
         try:
             save_skeleton_json(
                 mixamo_data=mixamo_data,
@@ -694,10 +702,12 @@ def process_video(
             "duration_sec": round(duration_sec, 3),
             "processing_time_sec": round(processing_time, 2),
             "video_path": video_s3_key,
-
         }
 
-        redis.setex(_video_cache_key(video_hash), 86400, json.dumps(result))
+        try:
+            redis.setex(_video_cache_key(video_hash), 86400, json.dumps(result))
+        except Exception:
+            logger.warning("Redis setex failed for hash=%s, continuing without cache", video_hash)
 
         logger.info(
 

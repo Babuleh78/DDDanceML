@@ -1,6 +1,6 @@
-# app/schemas/process.py
 from pydantic import BaseModel, Field, field_validator, validator
 from typing import Optional
+from urllib.parse import urlparse
 import uuid
 from pydantic import BaseModel, Field
 
@@ -45,7 +45,7 @@ class ProcessUrlRequest(BaseModel):
 
     @field_validator("url")
     def validate_url(cls, v):
-        allowed =[
+        allowed = [
             "tiktok.com",
             "vm.tiktok.com",
             "instagram.com",
@@ -56,6 +56,10 @@ class ProcessUrlRequest(BaseModel):
             "vk.video",
             "vkvideo.ru",
         ]
-        if not any(domain in v for domain in allowed):
-            raise ValueError(f"Unsupported platform. Allowed: {allowed}")
+        parsed = urlparse(v)
+        if parsed.scheme not in ("http", "https"):
+            raise ValueError("URL must use http or https scheme")
+        netloc = parsed.netloc.lower()
+        if not any(netloc == d or netloc.endswith("." + d) for d in allowed):
+            raise ValueError(f"URL domain not in allowlist: {allowed}")
         return v

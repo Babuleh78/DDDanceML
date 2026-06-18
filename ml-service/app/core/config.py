@@ -1,8 +1,24 @@
 from pathlib import Path
 from typing import Literal, Optional
 
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+def _with_redis_password(url: str, password: str) -> str:
+    """Inject a password into a redis:// URL that has no credentials yet.
+
+    Redis runs with --requirepass, but the connection URLs (env defaults or
+    .env) carry no password, which yields "Authentication required". We splice
+    the password in here so celery/redis clients connect authenticated, without
+    having to duplicate it into every REDIS_* URL in the environment.
+    """
+    if not password or "@" in url:
+        return url
+    for scheme in ("rediss://", "redis://"):
+        if url.startswith(scheme):
+            return f"{scheme}:{password}@{url[len(scheme):]}"
+    return url
 
 
 class Settings(BaseSettings):
@@ -34,7 +50,11 @@ class Settings(BaseSettings):
     
     labeling_cache_ttl: int = Field(default=3600, env="LABELING_CACHE_TTL")
     labeling_cache_size: int = Field(default=1000, env="LABELING_CACHE_SIZE")
-    redis_url: str = "redis://redis:6379/0"
+    redis_url: str = Field(default="redis://redis:6379/0", env="REDIS_URL")
+    celery_broker_url: str = Field(default="redis://redis:6379/0", env="CELERY_BROKER_URL")
+    celery_result_backend: str = Field(default="redis://redis:6379/1", env="CELERY_RESULT_BACKEND")
+    redis_cache_url: str = Field(default="redis://redis:6379/2", env="REDIS_CACHE_URL")
+    redis_password: Optional[str] = Field(default=None, env="REDIS_PASSWORD")
     labeling_enabled: bool = Field(default=False, env="LABELING_ENABLED")
     
     debug_mode: bool = Field(default=False, env="DEBUG_MODE")
@@ -56,7 +76,15 @@ class Settings(BaseSettings):
     admin_token: Optional[str] = Field(default=None, env="ADMIN_TOKEN")
 
     ml_internal_token: Optional[str] = Field(default=None, env="ML_INTERNAL_TOKEN")
-    
+
+    @model_validator(mode="after")
+    def _inject_redis_password(self) -> "Settings":
+        if self.redis_password:
+            self.redis_url = _with_redis_password(self.redis_url, self.redis_password)
+            self.celery_broker_url = _with_redis_password(self.celery_broker_url, self.redis_password)
+            self.celery_result_backend = _with_redis_password(self.celery_result_backend, self.redis_password)
+            self.redis_cache_url = _with_redis_password(self.redis_cache_url, self.redis_password)
+        return self
 
 
 settings = Settings()

@@ -1,13 +1,11 @@
-import os
 from celery import Celery
-
-redis_url = os.getenv("REDIS_URL", "redis://redis:6379/0")
+from app.core.config import settings
 
 celery_app = Celery(
     "dddance",
-    broker=redis_url,
-    backend=redis_url.replace("/0", "/1"),
-    include=["app.worker.tasks"],  
+    broker=settings.celery_broker_url,
+    backend=settings.celery_result_backend,
+    include=["app.worker.tasks"],
 )
 
 celery_app.conf.update(

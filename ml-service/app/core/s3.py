@@ -1,4 +1,3 @@
-# app/core/s3.py
 import boto3
 from botocore.config import Config
 from botocore.exceptions import ClientError

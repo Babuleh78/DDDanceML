@@ -79,7 +79,6 @@ def get_body_parts_report(analysis: Dict) -> str:
             f"(диапазон {data['range_deg']:.0f}°, {data['trend']})"
         )
 
-    # Темп
     tempo = analysis.get("tempo", {})
     if tempo:
         lines.append(f"\n Темп ")
@@ -87,7 +86,6 @@ def get_body_parts_report(analysis: Dict) -> str:
                      f"{tempo.get('accent_count', 0)} акцентов, "
                      f"регулярность {tempo.get('rhythm_regularity', 0):.2f}")
 
-    # Симметрия
     lines.append("\n Симметрия ")
     for pair, data in analysis.get("symmetry", {}).items():
         lines.append(f"  {pair}: {data['label']}, "

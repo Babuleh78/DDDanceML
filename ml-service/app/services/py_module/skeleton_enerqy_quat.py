@@ -2,7 +2,6 @@ import numpy as np
 from scipy.signal import find_peaks, savgol_filter
 from typing import Optional, List, Dict
 
-# Кости, участвующие в расчёте энергии (крупные суставы)
 KEY_BONES = [
     'mixamorig:LeftArm',
     'mixamorig:RightArm',
@@ -61,7 +60,6 @@ def compute_energy(
     N = len(frames)
     quats = _extract_quats(frames)
 
-    # Угловая скорость
     velocity = np.zeros(N, dtype=np.float32)
     for t in range(1, N - 1):
         bone_vels = [
@@ -72,14 +70,12 @@ def compute_energy(
     velocity[0] = velocity[1]
     velocity[-1] = velocity[-2]
 
-    # Угловое ускорение
     acceleration = np.zeros(N, dtype=np.float32)
     for t in range(1, N - 1):
         acceleration[t] = abs(velocity[t + 1] - velocity[t - 1]) / 2.0
     acceleration[0] = acceleration[1]
     acceleration[-1] = acceleration[-2]
 
-    # Нормализация
     def _norm(sig):
         mn, mx = sig.min(), sig.max()
         if mx - mn < 1e-8:
@@ -127,7 +123,6 @@ def build_segments(
     min_frames = max(2, int(fps * min_segment_sec))
     boundaries = sorted(set([0] + boundary_frames + [N - 1]))
 
-    # Фильтрация слишком коротких сегментов
     filtered = [boundaries[0]]
     for b in boundaries[1:]:
         if b == boundaries[-1]:

@@ -329,7 +329,7 @@ async def dance_compare(req: DanceCompareRequest):
     }
 
 
-TIPS_SYSTEM_PROMPT = ( # До лучших времен
+TIPS_SYSTEM_PROMPT = (
     "Ты тренер по танцам. На вход — общий результат попытки (0-100) и слабые места по сегментам "
     "с тегами feedback: on_time / early / late / low_amplitude. "
     "Твоя задача — дать 2-3 коротких совета (каждый одна фраза, 6-14 слов, на русском). "
@@ -461,3 +461,5 @@ async def compare_tips(req: CompareTipsRequest):
 @router.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+

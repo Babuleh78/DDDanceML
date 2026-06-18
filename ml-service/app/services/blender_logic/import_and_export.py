@@ -1,5 +1,7 @@
-import bpy, json, sys, argparse, mathutils
+import bpy, json, sys, argparse, mathutils, logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 def main():
     return _run()
@@ -52,8 +54,8 @@ def _run():
     for old_act in list(bpy.data.actions):
         try:
             bpy.data.actions.remove(old_act, do_unlink=True)
-        except:
-            pass
+        except Exception as e:
+            logger.warning("blender op failed: %s", e)
 
     bpy.context.scene.render.fps = int(fps)
     bpy.context.scene.frame_start = 0
@@ -150,12 +152,12 @@ def _run():
             if old_act != action:
                 try:
                     bpy.data.actions.remove(old_act, do_unlink=True)
-                except:
-                    pass
+                except Exception as e:
+                    logger.warning("blender op failed: %s", e)
         try:
             bpy.ops.outliner.orphans_purge(do_recursive=True)
-        except:
-            pass
+        except Exception as e:
+            logger.warning("blender op failed: %s", e)
 
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
 

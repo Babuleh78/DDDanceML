@@ -9,22 +9,22 @@ import numpy as np
 
 
 KEY_JOINTS = [
-    0,          # нос — голова
-    11, 12,     # плечи
-    13, 14,     # локти
-    15, 16,     # запястья
-    23, 24,     # бёдра
-    25, 26,     # колени
-    27, 28,     # лодыжки
+    0,
+    11, 12,
+    13, 14,
+    15, 16,
+    23, 24,
+    25, 26,
+    27, 28,
 ]
 
 BONE_TRIPLES = [
-    (11, 13, 15),   # левая рука:  плечо  локоть  запястье
-    (12, 14, 16),   # правая рука
-    (23, 25, 27),   # левая нога:  бедро колено  лодыжка
-    (24, 26, 28),   # правая нога
-    (11, 23, 25),   # левый бок:   плечо  бедро  колено
-    (12, 24, 26),   # правый бок
+    (11, 13, 15),
+    (12, 14, 16),
+    (23, 25, 27),
+    (24, 26, 28),
+    (11, 23, 25),
+    (12, 24, 26),
 ]
 
 
@@ -71,13 +71,11 @@ def compute_bone_angle_delta(frames: list) -> np.ndarray:
     N = len(frames)
     angle_delta = np.zeros(N, dtype=np.float32)
 
-    # Предвычисляем углы для всех кадров
     angles = np.zeros((N, len(BONE_TRIPLES)), dtype=np.float32)
     for t in range(N):
         for k, (a, b, c) in enumerate(BONE_TRIPLES):
             angles[t, k] = angle_at_joint(frames[t], a, b, c)
 
-    # Разность между соседними кадрами
     for t in range(1, N):
         angle_delta[t] = np.mean(np.abs(angles[t] - angles[t - 1]))
 
