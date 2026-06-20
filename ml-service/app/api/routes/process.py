@@ -95,8 +95,8 @@ async def _describe_segment(features: str, segment_idx: int, dance_id: str) -> s
     gpu_available = await _check_gpu_server()
 
     if not gpu_available:
-        logger.warning(f"GPU-сервер недоступен ({GPU_SERVER_URL}), возвращаем заглушку")
-        return f"GPU сервер недоступен! Мы постараемся все починить, чтобы вы увидели описание сегмента {segment_idx+1}"
+        logger.warning(f"GPU-сервер недоступен ({GPU_SERVER_URL}), описание отложено")
+        return f"Скоро будет описание сегмента {segment_idx+1}"
 
     max_attempts = 5
 
@@ -283,6 +283,17 @@ async def get_segment_description(dance_id: str, segment_idx: int):
                 segment_idx=segment_idx,
                 dance_id=dance_id,
             )
+
+            if description.lower().startswith("Наш ИИ помощник отдыхает и не готов описывать танец. Но вы можете сделать это сами!"):
+                logger.info(
+                    f"GPU unavailable — segment {segment_idx} description deferred, not caching"
+                )
+                return {
+                    "dance_id": dance_id,
+                    "segment_idx": segment_idx,
+                    "description": description,
+                    "from_cache": False,
+                }
 
             desc_path = str(Path(tmpdir) / "desc.txt")
             with open(desc_path, "w", encoding="utf-8") as out_f:
