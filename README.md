@@ -98,6 +98,12 @@ Interactive docs at `http://localhost:8000/docs` once running.
 Requires Docker. The service expects an external `ml-internal` network and a
 reachable Redis + S3 (MinIO in dev).
 
+> **Prerequisite:** the image build installs MediaPipe from a local wheel
+> (`mediapipe-0.8.10.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl`).
+> That wheel is intentionally not committed (it is large and platform-specific);
+> place it in the repository root before building, or adjust the `COPY`/`pip
+> install` step in the `Dockerfile` to pull it from PyPI for your platform.
+
 ```bash
 cp .env.example .env          # then fill in real values
 docker network create ml-internal   # once, if it doesn't exist
