@@ -1,26 +1,43 @@
+# Python
 __pycache__/
 *.pyc
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
 DDDenv/
 DDDenv39/
+.venv/
+venv/
 
+# Secrets & credentials  (NEVER commit real values — see .env.example / secrets/README.md)
+.env
+.env.*
+!.env.example
+secrets/*
+!secrets/README.md
+*_cookies.txt
+*.cookies
 
+# Media artifacts
 *.mp4
 *.avi
 *.mov
 
-.env
-.env.*
-.env.example
+# Large model / wheel artifacts (installed from index, not committed)
+*.whl
+*.safetensors
+.qwen_model/
+/ml-service/app/models/adapter
+dddance-ml.tar.gz
 
+# Editors / OS
 .vscode/
 .idea/
 .DS_Store
-mediapipe-0.8.10.1-cp39-cp39-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
-.qwen_model/
 
+# Misc
 Подсказки.txt
-/ml-service\app\models\adapter
-.safetensors
-
-dddance-ml.tar.gz

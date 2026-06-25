@@ -1,0 +1,39 @@
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual envs
+DDDenv/
+DDDenv39/
+.venv/
+venv/
+
+# VCS / editors
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Secrets (mounted at runtime, never baked into image)
+.env
+.env.*
+secrets/
+
+# Large local artifacts
+*.whl
+*.safetensors
+*.tar.gz
+*.mp4
+*.avi
+*.mov
+ml-service/results/
+
+# Docs / dev-only
+README.md
+docs/
+tests/
