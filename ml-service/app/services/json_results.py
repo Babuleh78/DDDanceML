@@ -1,9 +1,9 @@
 """Сохранение и загрузка результатов обработки."""
 import json
 import logging
-from pathlib import Path
-from typing import Dict, Any, Optional
 from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, Optional
 
 from app.core import s3 as s3_client
 from app.core.config import settings
@@ -82,5 +82,5 @@ async def save_segments_to_s3(
 
 def load_segments_from_file(file_path: Path) -> Dict[str, Any]:
     """Загружает результаты из локального JSON для тестов."""
-    with open(file_path, "r", encoding="utf-8") as f:
+    with open(file_path, encoding="utf-8") as f:
         return json.load(f)

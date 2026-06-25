@@ -1,12 +1,7 @@
-import json
-import argparse
-import numpy as np
-from pathlib import Path
-from scipy.signal import find_peaks, savgol_filter
-
 from typing import Optional
-import numpy as np
 
+import numpy as np
+from scipy.signal import find_peaks, savgol_filter
 
 KEY_JOINTS = [
     0,

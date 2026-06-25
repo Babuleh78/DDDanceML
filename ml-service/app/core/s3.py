@@ -1,12 +1,15 @@
-import boto3
-from botocore.config import Config
-from botocore.exceptions import ClientError
-from app.core.config import settings
-from pathlib import Path
 import logging
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse
+
+import boto3
 from boto3.s3.transfer import TransferConfig
+from botocore.config import Config
+from botocore.exceptions import ClientError
+
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
 
@@ -34,8 +37,8 @@ def download_file(s3_key: str, local_path: str) -> None:
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         if error_code == 'NoSuchKey':
-            raise FileNotFoundError(f"S3 key not found: {s3_key}")
-        raise RuntimeError(f"S3 download failed for key '{s3_key}': {e}")
+            raise FileNotFoundError(f"S3 key not found: {s3_key}") from e
+        raise RuntimeError(f"S3 download failed for key '{s3_key}': {e}") from e
 
 
 def upload_file(local_path: str, s3_key: str) -> None:
@@ -70,7 +73,7 @@ def upload_file(local_path: str, s3_key: str) -> None:
     except ClientError as e:
         error_code = e.response.get('Error', {}).get('Code', 'Unknown')
         error_msg = e.response.get('Error', {}).get('Message', str(e))
-        raise RuntimeError(f"S3 upload failed for key '{s3_key}': {error_code} - {error_msg}")
+        raise RuntimeError(f"S3 upload failed for key '{s3_key}': {error_code} - {error_msg}") from e
     
 def copy_object(src_key: str, dst_key: str) -> None:
     client = get_s3_client()
@@ -83,10 +86,10 @@ def copy_object(src_key: str, dst_key: str) -> None:
     except ClientError as e:
         error_code = e.response.get("Error", {}).get("Code", "Unknown")
         if error_code in ("NoSuchKey", "404"):
-            raise FileNotFoundError(f"S3 source not found: {src_key}")
+            raise FileNotFoundError(f"S3 source not found: {src_key}") from e
         raise RuntimeError(
             f"S3 copy failed for '{src_key}' -> '{dst_key}': {error_code} - {e}"
-        )
+        ) from e
 
 
 def file_exists(key: str) -> bool:

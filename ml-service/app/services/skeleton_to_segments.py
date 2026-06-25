@@ -1,7 +1,9 @@
 import logging
+from typing import Dict, List, Optional
+
 import numpy as np
-from typing import Optional, List, Dict
-from .py_module.skeleton_enerqy_quat import compute_energy, detect_boundaries, build_segments
+
+from .py_module.skeleton_enerqy_quat import build_segments, compute_energy, detect_boundaries
 
 logger = logging.getLogger(__name__)
 

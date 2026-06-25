@@ -1,15 +1,17 @@
+import copy
 import json
+import math
+import os
+
 import cv2
 import glm
-import math
 import matplotlib
-import os
-from .mixamo import Mixamo
-from .model_node import ModelNode, json_to_glm_vec, json_to_glm_quat, calc_transform
-from .shashura import ShashuraFilter
-from scipy.signal import savgol_filter as _savgol
-import copy
 import numpy as np
+from scipy.signal import savgol_filter as _savgol
+
+from .mixamo import Mixamo
+from .model_node import ModelNode, calc_transform, json_to_glm_quat, json_to_glm_vec
+from .shashura import ShashuraFilter
 
 _NORMAL_WINDOW   = 7
 _EXTREMITY_WINDOW = 15
@@ -32,7 +34,7 @@ _EXTREMITY_INDICES = {
  
 
 try:
-    from .mediapipe_debugger import log_raw_pose, log_glm_list, save_debug_data
+    from .mediapipe_debugger import log_glm_list, log_raw_pose, save_debug_data
 except ImportError:
     def log_raw_pose(*args, **kwargs): pass
     def log_glm_list(*args, **kwargs): pass
@@ -272,11 +274,11 @@ def mediapipe_to_mixamo(mp_manager,
         if anim_result_json["frames"]:
             anim_result_json["duration"] = anim_result_json["frames"][-1]["time"]
 
-    except ZeroDivisionError as e:
+    except ZeroDivisionError:
         if cap.isOpened():
             cap.release()
         return [False, None]
-    except Exception as e:
+    except Exception:
         if cap.isOpened():
             cap.release()
         return [False, None]

@@ -1,6 +1,7 @@
-import mediapipe 
+import mediapipe
 
-class MediapipeManager():
+
+class MediapipeManager:
     def __init__(self):
         self.mp_pose = mediapipe.solutions.pose
         self.mp_drawing = mediapipe.solutions.drawing_utils

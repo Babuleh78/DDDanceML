@@ -1,8 +1,9 @@
-from pydantic import BaseModel, Field, field_validator, validator
+import uuid
 from typing import Optional
 from urllib.parse import urlparse
-import uuid
-from pydantic import BaseModel, Field
+
+from pydantic import BaseModel, Field, field_validator
+
 
 class ProcessRequest(BaseModel):
     video_key: str

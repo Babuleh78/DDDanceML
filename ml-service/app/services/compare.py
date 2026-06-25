@@ -1,17 +1,17 @@
-import logging
 import json
+import logging
 import tempfile
 import time
 from datetime import datetime, timezone
-
-from app.domain.comparison import ComparisonResult  # noqa: F401 — domain type, gradual migration
 from pathlib import Path
 from typing import Optional
 
 import cv2
 import numpy as np
-from scipy.signal import savgol_filter, find_peaks
+from scipy.signal import find_peaks, savgol_filter
 from scipy.spatial.distance import cdist
+
+from app.domain.comparison import ComparisonResult  # noqa: F401 — domain type, gradual migration
 
 try:
     from dtaidistance import dtw_ndim
@@ -20,9 +20,9 @@ except ImportError:
     DTAIDISTANCE_AVAILABLE = False
 
 from app.core import s3 as s3_client
-from app.services.video_to_json import convert_video_to_json
-from app.services.skeleton import save_skeleton_json
 from app.core.config import settings
+from app.services.skeleton import save_skeleton_json
+from app.services.video_to_json import convert_video_to_json
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ def _get_cached_landmarks(
             cache_local = Path(tempfile.gettempdir()) / f"cache_{Path(cache_key).name}"
             s3_client.download_file(cache_key, str(cache_local))
             
-            with open(cache_local, "r", encoding="utf-8") as f:
+            with open(cache_local, encoding="utf-8") as f:
                 cached_data = json.load(f)
             
             cache_local.unlink()
@@ -401,7 +401,7 @@ def _load_original_segments(dance_id: str) -> list:
             return []
         tmp = Path(tempfile.gettempdir()) / f"segs_{dance_id}.json"
         s3_client.download_file(segments_key, str(tmp))
-        with open(tmp, "r", encoding="utf-8") as f:
+        with open(tmp, encoding="utf-8") as f:
             data = json.load(f)
         tmp.unlink(missing_ok=True)
         if isinstance(data, list):
@@ -634,7 +634,7 @@ def compare_dance(
             if not model_path.exists():
                 raise RuntimeError(f"Mixamo model not found: {settings.mixamo_model_path}")
 
-            with open(settings.mixamo_model_path, "r", encoding="utf-8") as f:
+            with open(settings.mixamo_model_path, encoding="utf-8") as f:
                 model_json = json.load(f)
 
             cache_key = f"{LANDMARKS_CACHE_PREFIX}/{dance_id}.json"

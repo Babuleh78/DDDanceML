@@ -1,6 +1,7 @@
+from typing import Dict, Optional
+
 import numpy as np
 from scipy.signal import find_peaks, savgol_filter
-from typing import Optional, List, Dict
 
 KEY_BONES = [
     'mixamorig:LeftArm',

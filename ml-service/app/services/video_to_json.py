@@ -1,12 +1,7 @@
 import json
-import sys
-import os
-from pathlib import Path
 
-
-
-from app.services.py_module.mp_manager import MediapipeManager
 from app.services.py_module.mp_helper import mediapipe_to_mixamo
+from app.services.py_module.mp_manager import MediapipeManager
 
 
 def convert_video_to_json(

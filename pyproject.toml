@@ -1,0 +1,50 @@
+[project]
+name = "dddance-ml"
+version = "0.1.0"
+description = "Computer-vision microservice for dance pose comparison (DDDance)"
+requires-python = ">=3.9"
+
+[tool.ruff]
+target-version = "py39"
+line-length = 100
+src = ["ml-service"]
+extend-exclude = [
+    "ml-service/.mypy_cache",
+    "ml-service/model-server",
+    "ml-service/blender_data",
+]
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # bugbear
+    "C4",  # comprehensions
+]
+ignore = [
+    "E501",  # line length handled by formatter
+    "B008",  # FastAPI Depends() in defaults is idiomatic
+]
+# NOTE: `UP` (pyupgrade) is intentionally not enforced. The service targets
+# Python 3.9 and relies on runtime-evaluated typing annotations in several
+# modules, where PEP 585 builtins (list[...] vs List[...]) are not always safe.
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]   # re-exports
+"ml-service/tests/**" = ["B011"]
+
+[tool.mypy]
+python_version = "3.9"
+files = ["ml-service/app"]
+ignore_missing_imports = true   # mediapipe/blender/yt-dlp ship no stubs
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+check_untyped_defs = true
+exclude = ["ml-service/app/services/py_module", "ml-service/app/services/blender_logic"]
+
+[tool.pytest.ini_options]
+testpaths = ["ml-service/tests"]
+pythonpath = ["ml-service"]
+addopts = "-ra -q"

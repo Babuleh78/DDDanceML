@@ -1,5 +1,11 @@
-import bpy, json, sys, argparse, mathutils, logging
+import argparse
+import json
+import logging
+import sys
 from pathlib import Path
+
+import bpy
+import mathutils
 
 logger = logging.getLogger(__name__)
 
@@ -19,7 +25,7 @@ def _run():
                         help="Точное количество кадров для экспорта")
     args = parser.parse_args(argv)
 
-    with open(args.json, "r", encoding="utf-8") as f:
+    with open(args.json, encoding="utf-8") as f:
         data = json.load(f)
 
     fps = float(data.get("ticksPerSecond", 30))

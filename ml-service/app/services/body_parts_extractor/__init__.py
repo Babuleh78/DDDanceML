@@ -8,8 +8,8 @@ Body Parts Extractor - модуль для анализа движений по 
 - body_parts_groups.py: определение групп костей
 """
 
-from .extractor import extract_body_parts_for_segments, get_body_parts_report
 from .body_parts_groups import BODY_PARTS_GROUPS
+from .extractor import extract_body_parts_for_segments, get_body_parts_report
 
 __all__ = [
     "extract_body_parts_for_segments",

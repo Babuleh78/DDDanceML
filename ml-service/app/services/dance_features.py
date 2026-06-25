@@ -1,7 +1,6 @@
 import logging
+
 import numpy as np
-from typing import Optional
-from scipy.spatial.distance import euclidean
 from scipy.stats import entropy
 
 logger = logging.getLogger(__name__)

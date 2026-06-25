@@ -1,12 +1,13 @@
 import logging
-from typing import Dict, List, Optional, Tuple
+from typing import Dict
 
-from .body_parts_groups import BODY_PARTS_GROUPS, JOINT_ANGLES, SYMMETRY_PAIRS
 from .analyzer import analyze_segment_body_parts
-from .description_builder import enrich_segments_with_descriptions, build_segment_description
+from .body_parts_groups import BODY_PARTS_GROUPS, JOINT_ANGLES, SYMMETRY_PAIRS
+from .description_builder import enrich_segments_with_descriptions
 
 logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor, as_completed
+
 
 def extract_body_parts_for_segments(
     segments,
@@ -16,9 +17,6 @@ def extract_body_parts_for_segments(
     joint_angles_def=None,
     symmetry_pairs=None,
 ):
-    from .body_parts_groups import BODY_PARTS_GROUPS, JOINT_ANGLES, SYMMETRY_PAIRS
-    from .analyzer import analyze_segment_body_parts
-    from .description_builder import enrich_segments_with_descriptions
  
     if body_parts_groups is None:
         body_parts_groups = BODY_PARTS_GROUPS
@@ -81,7 +79,7 @@ def get_body_parts_report(analysis: Dict) -> str:
 
     tempo = analysis.get("tempo", {})
     if tempo:
-        lines.append(f"\n Темп ")
+        lines.append("\n Темп ")
         lines.append(f"  {tempo.get('beats_per_min', 0):.0f} BPM, "
                      f"{tempo.get('accent_count', 0)} акцентов, "
                      f"регулярность {tempo.get('rhythm_regularity', 0):.2f}")

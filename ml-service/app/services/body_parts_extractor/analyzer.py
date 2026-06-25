@@ -1,7 +1,8 @@
-import numpy as np
-from scipy.signal import savgol_filter, find_peaks
-from typing import Dict, List, Optional, Tuple
 import logging
+from typing import Dict, List, Optional, Tuple
+
+import numpy as np
+from scipy.signal import find_peaks, savgol_filter
 
 logger = logging.getLogger(__name__)
 

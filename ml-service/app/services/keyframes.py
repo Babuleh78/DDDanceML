@@ -26,7 +26,7 @@ def extract_and_save_keyframes(dance_id: str) -> dict:
     tmp_landmarks = Path(tempfile.gettempdir()) / f"lm_{dance_id}.json"
     try:
         s3_client.download_file(cache_key, str(tmp_landmarks))
-        with open(tmp_landmarks, "r", encoding="utf-8") as f:
+        with open(tmp_landmarks, encoding="utf-8") as f:
             data = json.load(f)
     finally:
         tmp_landmarks.unlink(missing_ok=True)

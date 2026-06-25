@@ -3,9 +3,9 @@ import logging
 from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
+from app.core.config import settings
 from app.core.redis_client import get_redis
 from app.core.s3 import get_s3_client
-from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["health"])

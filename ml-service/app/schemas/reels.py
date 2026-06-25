@@ -1,7 +1,6 @@
 from pydantic import BaseModel, Field
 
 
-
 class UserHistoryItem(BaseModel):
     dance_id: str
     score: float = 0.0

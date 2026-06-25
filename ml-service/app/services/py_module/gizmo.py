@@ -1,5 +1,6 @@
-import glm
 import math
+
+import glm
 
 g_is_abs = True
 

@@ -3,9 +3,9 @@ import os
 import time
 
 import requests
+from celery.exceptions import SoftTimeLimitExceeded
 
 from app.core.exceptions import S3UploadError
-from celery.exceptions import SoftTimeLimitExceeded
 from app.core.metrics import track_task_metrics
 from app.worker.celery_app import celery_app
 

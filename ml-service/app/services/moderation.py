@@ -3,7 +3,7 @@ import logging
 import os
 import random
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional
 from urllib.parse import urlparse
 

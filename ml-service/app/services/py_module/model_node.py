@@ -1,8 +1,9 @@
-import glm
 import copy
 import math
 
-from .gizmo import Gizmo, calc_quat
+import glm
+
+from .gizmo import Gizmo
 from .mixamo import Mixamo
 
 

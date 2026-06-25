@@ -1,6 +1,5 @@
 import logging
 import os
-from typing import Optional
 
 from app.core.config import settings
 
@@ -38,6 +37,7 @@ def _ensure_initialized():
         return
 
     from aiogram import Dispatcher
+
     from app.telegram_bot.handlers import router
 
     _bot = _make_bot()

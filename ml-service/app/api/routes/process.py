@@ -1,27 +1,26 @@
-import logging
 import json
-import tempfile
+import logging
+import os
 import random
+import tempfile
 from pathlib import Path
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status
-from app.api.deps import verify_internal_token
-from app.schemas.process import ProcessRequest
-from app.worker.tasks import process_video_task
-from app.schemas.process import ProcessUrlRequest
-from app.worker.tasks import process_video_url_task
-from app.worker.celery_app import celery_app
-from app.core import s3 as s3_client
+
 import httpx
-import os
+from fastapi import APIRouter, Depends, HTTPException, status
+
+from app.api.deps import verify_internal_token
+from app.core import s3 as s3_client
 from app.schemas.compare import (
-    DanceCompareRequest,
-    DanceCompareResponse,
+    CompareTip,
     CompareTipsRequest,
     CompareTipsResponse,
-    CompareTip,
+    DanceCompareRequest,
+    DanceCompareResponse,
 )
-from app.worker.tasks import compare_dance_task
+from app.schemas.process import ProcessRequest, ProcessUrlRequest
+from app.worker.celery_app import celery_app
+from app.worker.tasks import compare_dance_task, process_video_task, process_video_url_task
 
 logger = logging.getLogger(__name__)
 
@@ -234,7 +233,7 @@ async def get_segment_description(dance_id: str, segment_idx: int):
             local_path = str(Path(tmpdir) / "segments.json")
             s3_client.download_file(segments_key, local_path)
 
-            with open(local_path, "r", encoding="utf-8") as f:
+            with open(local_path, encoding="utf-8") as f:
                 segments_data = json.load(f)
 
             segments = segments_data.get("segments", [])
@@ -259,7 +258,7 @@ async def get_segment_description(dance_id: str, segment_idx: int):
             if s3_client.file_exists(desc_key):
                 desc_path = str(Path(tmpdir) / "desc.txt")
                 s3_client.download_file(desc_key, desc_path)
-                with open(desc_path, "r", encoding="utf-8") as cached_f:
+                with open(desc_path, encoding="utf-8") as cached_f:
                     cached_text = cached_f.read().strip()
                 if cached_text:
                     logger.info(f"Cache hit (desc object) for segment {segment_idx}")
