@@ -1,0 +1,38 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+
+jobs:
+  lint-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.9"
+          cache: pip
+
+      - name: Install dev dependencies
+        run: pip install -r requirements-dev.txt
+
+      # Enforced (blocking) on the maintained, lint-clean parts of the tree.
+      - name: Ruff (enforced)
+        run: ruff check ml-service/app/domain ml-service/app/core ml-service/app/schemas ml-service/tests
+
+      # Informational: surfaces the lint backlog in the legacy pipeline code
+      # without failing the build. The backlog is being burned down (ratchet).
+      - name: Ruff (full tree, informational)
+        run: ruff check ml-service
+        continue-on-error: true
+
+      - name: Mypy (type-check, informational)
+        run: mypy
+        continue-on-error: true
+
+      - name: Pytest
+        run: pytest --cov=ml-service/app --cov-report=term-missing
