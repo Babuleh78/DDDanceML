@@ -74,9 +74,9 @@ RUN pip install --upgrade pip && pip install \
 
 RUN python - <<'EOF'
 from ultralytics import YOLO
-YOLO("yolov8n.pt")          # скачает и закэширует веса
+YOLO("yolov8n.pt")          # downloads and caches the weights
 from nudenet import NudeDetector
-NudeDetector()               # скачает и закэширует ONNX-модель
+NudeDetector()               # downloads and caches the ONNX model
 print("Moderation models pre-downloaded OK")
 EOF
 
